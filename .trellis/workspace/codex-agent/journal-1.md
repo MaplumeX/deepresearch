@@ -191,3 +191,36 @@ Added an async run lifecycle with persisted history and SSE, plus a new React we
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: Upgrade research_worker to staged subgraph
+
+**Date**: 2026-04-13
+**Task**: Upgrade research_worker to staged subgraph
+**Branch**: `master`
+
+### Summary
+
+Refactored research_worker into an internal staged subgraph, extracted deterministic query ranking/filtering/scoring logic into app/services/research_worker.py, narrowed extract tool responsibilities, updated backend runtime/docs specs, and verified with unit tests plus compileall.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `69196c4` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

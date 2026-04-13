@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 4
+- **Total Sessions**: 5
 - **Last Active**: 2026-04-13
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~193 | Active |
+| `journal-1.md` | ~226 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 5 | 2026-04-13 | Upgrade research_worker to staged subgraph | `69196c4` | `master` |
 | 4 | 2026-04-13 | 重构 ChatGPT 风格研究工作台 UI | `a06c50b` | `master` |
 | 3 | 2026-04-13 | Build async research workspace and web app | `2528cff` | `master` |
 | 2 | 2026-04-13 | Document current LangGraph graph | `3b432de` | `master` |
