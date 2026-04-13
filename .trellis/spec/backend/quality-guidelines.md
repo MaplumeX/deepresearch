@@ -6,46 +6,61 @@
 
 ## Overview
 
-<!--
-Document your project's quality standards here.
-
-Questions to answer:
-- What patterns are forbidden?
-- What linting rules do you enforce?
-- What are your testing requirements?
-- What code review standards apply?
--->
-
-(To be filled by the team)
+The backend favors explicit workflow state, pure services, and narrow side-effect boundaries. A change is not considered complete if the control flow is only implied by prompt text or hidden inside a tool implementation.
 
 ---
 
 ## Forbidden Patterns
 
-<!-- Patterns that should never be used and why -->
+### Hidden Orchestration in Tools
 
-(To be filled by the team)
+Do not put planning, routing, or gap-detection logic inside search/fetch/extract tools.
+
+Why:
+- It makes the graph impossible to audit
+- It prevents targeted unit tests
+- It hides where retries or loops should happen
+
+### Report Generation from Raw Worker Payloads
+
+Do not synthesize directly from `raw_findings` or raw page content.
+
+Why:
+- Citations cannot be audited reliably
+- Duplicate claims bypass normalization
+- The reporting layer becomes coupled to scraping details
 
 ---
 
 ## Required Patterns
 
-<!-- Patterns that must always be used -->
+### Deterministic Fallbacks
 
-(To be filled by the team)
+When LLM credentials are missing, planning and synthesis must still complete with deterministic fallback behavior.
+
+### Pure Service Isolation
+
+Put merge, citation, dedupe, and budget logic in `app/services/` so it can be tested without network calls.
+
+### Explicit State Contract
+
+When changing the graph, update the documented state keys in `research-agent-runtime.md`.
 
 ---
 
 ## Testing Requirements
 
-<!-- What level of testing is expected -->
-
-(To be filled by the team)
+- Run syntax compilation for `app/` and `tests/`
+- Unit test pure service logic first
+- Skip provider-dependent tests when the dependency is absent in the current environment
+- Add integration tests after the runtime path is stable and provider credentials are available
 
 ---
 
 ## Code Review Checklist
 
-<!-- What reviewers should check -->
-
-(To be filled by the team)
+- Do graph nodes only return partial state updates?
+- Are side effects isolated to `app/tools/` or runtime adapters?
+- Does every inline citation map to a real `source_id`?
+- Does the code still work without model credentials?
+- Is new reusable logic placed in `app/services/` instead of copied across nodes?
