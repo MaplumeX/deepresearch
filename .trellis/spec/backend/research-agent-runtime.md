@@ -52,7 +52,7 @@ def citation_audit(state: dict) -> dict
 ```python
 def rewrite_queries_node(state: dict) -> dict
 async def search_and_rank_node(state: dict) -> dict
-async def fetch_and_filter_node(state: dict) -> dict
+async def acquire_and_filter_node(state: dict) -> dict
 def extract_and_score_node(state: dict) -> dict
 def emit_results_node(state: dict) -> dict
 ```
@@ -127,6 +127,35 @@ def emit_results_node(state: dict) -> dict
 }
 ```
 
+#### Worker Search Hit Contract
+
+```json
+{
+  "title": "string",
+  "url": "non-empty string",
+  "snippet": "provider snippet or merged snippet",
+  "providers": "list[str], provider ids that surfaced this url",
+  "provider_metadata": "provider -> rank/query/native metadata map",
+  "raw_content": "provider-supplied content when available",
+  "raw_content_format": "html | text | markdown | null"
+}
+```
+
+#### Worker Source Contract
+
+```json
+{
+  "source_id": "stable hash-derived id",
+  "url": "string",
+  "title": "string",
+  "content": "normalized main text",
+  "fetched_at": "ISO-8601 timestamp",
+  "providers": "list[str]",
+  "acquisition_method": "provider_raw_content | http_fetch | search_snippet",
+  "metadata": "provider/content metadata used for downstream reasoning"
+}
+```
+
 #### Environment Contract
 
 ```text
@@ -135,6 +164,7 @@ LLM_BASE_URL             optional, preferred base URL for OpenAI-compatible chat
 OPENAI_API_KEY           optional fallback alias for compatibility
 OPENAI_BASE_URL          optional fallback alias for compatibility
 TAVILY_API_KEY           optional, enables web search
+BRAVE_API_KEY            optional, enables Brave Search aggregation
 CHECKPOINT_DB_PATH       optional, defaults to research.db
 RUNS_DB_PATH             optional, defaults to research_runs.db
 DEFAULT_MAX_ITERATIONS   optional, defaults to 2
@@ -154,8 +184,8 @@ REQUIRE_HUMAN_REVIEW     optional bool, defaults to false
 | ingest_request -> graph state | request payload | Normalize integer budgets before Pydantic validation | Invalid values are clamped first, then validated |
 | planner -> tasks | question + gaps | Limit task count to `max_parallel_tasks` | Fall back to deterministic task plan if the OpenAI-compatible model path is unavailable |
 | task -> worker query rewrite | task question + request scope | Build at most 3 deduplicated queries for a single task | Fall back to deterministic query set without LLM |
-| search -> fetch | search hits | Require non-empty URL before fetch | Skip invalid or failed hits |
-| fetch -> extract | HTML/text payload | Extract main text and ignore empty content | Skip empty or failed pages |
+| search -> acquire content | provider search hits | Merge duplicate URLs, keep provider metadata, require non-empty URL | Skip invalid hits and tolerate per-provider search failures |
+| acquire content -> extract | provider raw content / fetched HTML / snippet fallback | Try provider raw content first, then HTTP fetch, then snippet fallback | Skip unusable content and continue with any surviving acquisition path |
 | extract -> evidence scoring | normalized source documents | Drop short or weak pages, choose a focused snippet, and compute bounded `relevance_score` / `confidence` | Skip sources that do not meet the deterministic relevance floor |
 | synthesize -> audit | markdown report | Require citations to map to existing `sources` | Set warning and require review when unknown citation ids exist |
 | review -> finalize | resume payload | Optional `edited_report` override only | Keep draft report when no edited report is supplied |
@@ -168,7 +198,8 @@ REQUIRE_HUMAN_REVIEW     optional bool, defaults to false
 - Request contains a valid question and optional limits.
 - Create API returns queued run immediately.
 - Query rewrite produces focused task queries.
-- Search and fetch produce sources.
+- Tavily and Brave can both contribute hits for the same worker task.
+- Provider raw content is used when available; HTTP fetch and snippet fallback cover the rest.
 - Evidence scoring keeps only relevant sources and emits bounded scores.
 - Synthesis emits markdown with valid `[source_id]` citations.
 - Audit passes without unknown citations.
@@ -185,8 +216,8 @@ REQUIRE_HUMAN_REVIEW     optional bool, defaults to false
 - Empty `question`.
 - `max_iterations` or `max_parallel_tasks` outside the accepted range after normalization.
 - Report cites a source id that is not present in `sources`.
-- Tool fetch fails for all URLs and leaves a task without evidence.
-- Fetch returns only thin or irrelevant pages and the worker emits no evidence for that task.
+- Both providers fail or return unusable hits for all queries.
+- Provider raw content, HTTP fetch, and snippet fallback all fail or stay too weak for evidence extraction.
 - Client attempts to resume a completed run.
 - Server restarts while queued/running jobs exist and leaves stale statuses unmarked.
 
@@ -194,7 +225,8 @@ REQUIRE_HUMAN_REVIEW     optional bool, defaults to false
 
 - Unit test `app/services/citations.py` for citation extraction and missing citation detection.
 - Unit test `app/services/dedupe.py` for duplicate-evidence selection.
-- Unit test `app/services/research_worker.py` for query rewrite, search-hit ranking, page filtering, and evidence scoring.
+- Unit test `app/services/research_worker.py` for query rewrite, cross-provider search-hit ranking, content filtering, and evidence scoring.
+- Unit test `app/tools/extract.py` for provider-aware content normalization.
 - Unit test `app/graph/nodes/gap_check.py` for missing-task and corroboration gaps.
 - Unit test deterministic planning fallback when model credentials are absent.
 - Unit test `app/run_store.py` for persisted run snapshots.

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from app.domain.models import ResearchRequest, ResearchTask, SearchHit, SourceDocument
-from app.services.research_worker import build_task_evidence, filter_pages, rank_search_hits, rewrite_queries
+from app.domain.models import AcquiredContent, ResearchRequest, ResearchTask, SearchHit, SourceDocument
+from app.services.research_worker import build_task_evidence, filter_acquired_contents, rank_search_hits, rewrite_queries
 
 
 class ResearchWorkerServiceTest(unittest.TestCase):
@@ -38,31 +38,72 @@ class ResearchWorkerServiceTest(unittest.TestCase):
                     title="Research worker evidence scoring design",
                     url="https://example.com/research-worker",
                     snippet="Evidence scoring improves confidence and relevance.",
+                    providers=["tavily", "brave"],
+                    provider_metadata={
+                        "tavily": {"rank": 1},
+                        "brave": {"rank": 2},
+                    },
                 ),
             ],
             limit=2,
         )
         self.assertEqual(ranked[0].url, "https://example.com/research-worker")
+        self.assertEqual(ranked[0].providers, ["brave", "tavily"])
 
-    def test_filter_pages_drops_short_irrelevant_pages(self) -> None:
-        pages = filter_pages(
+    def test_rank_search_hits_merges_cross_provider_duplicates(self) -> None:
+        ranked = rank_search_hits(
             self.task,
             [
-                {
-                    "url": "https://example.com/short",
-                    "title": "Short note",
-                    "content": "tiny page",
-                },
-                {
-                    "url": "https://example.com/relevant",
-                    "title": "Research worker evidence scoring rollout",
-                    "content": "Evidence scoring improves the research worker. " * 40,
-                },
+                SearchHit(
+                    title="Evidence scoring design",
+                    url="https://example.com/research-worker",
+                    snippet="Short summary",
+                    providers=["tavily"],
+                    provider_metadata={"tavily": {"rank": 1}},
+                    raw_content="Provider raw content about evidence scoring." * 10,
+                    raw_content_format="text",
+                ),
+                SearchHit(
+                    title="Research worker evidence scoring design",
+                    url="https://example.com/research-worker",
+                    snippet="Longer cross-provider summary for the same document.",
+                    providers=["brave"],
+                    provider_metadata={"brave": {"rank": 2}},
+                ),
+            ],
+            limit=3,
+        )
+        self.assertEqual(len(ranked), 1)
+        self.assertEqual(ranked[0].providers, ["brave", "tavily"])
+        self.assertIsNotNone(ranked[0].raw_content)
+
+    def test_filter_acquired_contents_drops_short_irrelevant_pages(self) -> None:
+        contents = filter_acquired_contents(
+            self.task,
+            [
+                AcquiredContent(
+                    url="https://example.com/short",
+                    title="Short note",
+                    content="tiny page",
+                    content_format="text",
+                    acquired_at="2026-04-13T00:00:00+00:00",
+                    providers=["brave"],
+                    acquisition_method="search_snippet",
+                ),
+                AcquiredContent(
+                    url="https://example.com/relevant",
+                    title="Research worker evidence scoring rollout",
+                    content="Evidence scoring improves the research worker. " * 40,
+                    content_format="text",
+                    acquired_at="2026-04-13T00:00:00+00:00",
+                    providers=["tavily", "brave"],
+                    acquisition_method="provider_raw_content",
+                ),
             ],
             limit=2,
         )
-        self.assertEqual(len(pages), 1)
-        self.assertEqual(pages[0]["url"], "https://example.com/relevant")
+        self.assertEqual(len(contents), 1)
+        self.assertEqual(contents[0].url, "https://example.com/relevant")
 
     def test_build_task_evidence_scores_relevant_sources(self) -> None:
         findings, sources = build_task_evidence(
@@ -77,6 +118,8 @@ class ResearchWorkerServiceTest(unittest.TestCase):
                         "and reduced weak citations across the report."
                     ),
                     fetched_at="2026-04-13T00:00:00+00:00",
+                    providers=["tavily", "brave"],
+                    acquisition_method="provider_raw_content",
                 )
             ],
         )

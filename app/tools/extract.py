@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import UTC, datetime
 
-from app.domain.models import SourceDocument
+from app.domain.models import AcquiredContent, SourceDocument
 
 
-def _extract_main_text(raw_content: str) -> str:
+def _extract_main_text(raw_content: str, content_format: str) -> str:
+    if content_format in {"text", "markdown"}:
+        return " ".join(raw_content.split())
+
     try:
         import trafilatura
     except ImportError:
@@ -27,22 +29,28 @@ def _make_source_id(url: str) -> str:
     return f"S{digest}"
 
 
-def extract_sources(pages: list[dict]) -> list[SourceDocument]:
+def extract_sources(contents: list[AcquiredContent]) -> list[SourceDocument]:
     sources: list[SourceDocument] = []
 
-    for page in pages:
-        content = _extract_main_text(page.get("content", ""))
+    for item in contents:
+        content = _extract_main_text(item.content, item.content_format)
         if not content:
             continue
 
-        source_id = _make_source_id(page["url"])
+        source_id = _make_source_id(item.url)
         sources.append(
             SourceDocument(
                 source_id=source_id,
-                url=page["url"],
-                title=page.get("title", page["url"]),
+                url=item.url,
+                title=item.title or item.url,
                 content=content,
-                fetched_at=datetime.now(UTC).isoformat(),
+                fetched_at=item.acquired_at,
+                providers=list(item.providers),
+                acquisition_method=item.acquisition_method,
+                metadata={
+                    **item.metadata,
+                    "content_format": item.content_format,
+                },
             )
         )
 

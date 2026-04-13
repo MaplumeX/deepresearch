@@ -21,6 +21,7 @@ class ResearchRunManagerTest(unittest.IsolatedAsyncioTestCase):
             llm_api_key=None,
             llm_base_url=None,
             tavily_api_key=None,
+            brave_api_key=None,
             checkpoint_db_path=str(base_path / "checkpoint.db"),
             runs_db_path=str(base_path / "runs.db"),
             fetch_timeout_seconds=1.0,

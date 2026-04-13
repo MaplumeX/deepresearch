@@ -52,6 +52,7 @@ LLM_API_KEY=your-api-key
 PLANNER_MODEL=your-model-name
 SYNTHESIS_MODEL=your-model-name
 TAVILY_API_KEY=your-tavily-api-key
+BRAVE_API_KEY=your-brave-api-key
 ```
 
 常见 `LLM_BASE_URL` 形式：
@@ -213,12 +214,12 @@ npm run test
 ## 运行说明
 
 - 如果没有配置 `LLM_BASE_URL` / `LLM_API_KEY`，规划和综合会退化为确定性 fallback
-- 如果没有配置 `TAVILY_API_KEY`，流程仍然能运行，但通常拿不到真实网页证据
+- 如果没有配置 `TAVILY_API_KEY` 和 `BRAVE_API_KEY`，流程仍然能运行，但通常拿不到真实网页证据
 - `RUNS_DB_PATH` 默认是 `research_runs.db`，用于保存 run 历史和详情快照
-- 当前 `research_worker` 是骨架实现，后续适合替换成更强的 deepagents 子代理执行层
+- 当前 `research_worker` 已包含多 provider 搜索聚合、provider-aware 内容获取和确定性证据评分
 
 ## 下一步建议
 
 1. 补 `.env` 自动加载，省掉手动 `source`
 2. 加一个真正的 smoke test，覆盖从 API 到 graph 的单次运行
-3. 把 `research_worker` 升级为带查询重写、网页筛选和证据打分的真实研究子图
+3. 为多 provider 内容获取补端到端评测集和质量基准

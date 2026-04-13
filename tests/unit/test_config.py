@@ -49,6 +49,7 @@ class ConfigTest(unittest.TestCase):
             settings = get_settings()
 
         self.assertEqual(settings.runs_db_path, "research_runs.db")
+        self.assertIsNone(settings.brave_api_key)
 
 
 if __name__ == "__main__":

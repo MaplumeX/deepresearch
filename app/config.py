@@ -20,6 +20,7 @@ class Settings:
     llm_api_key: str | None
     llm_base_url: str | None
     tavily_api_key: str | None
+    brave_api_key: str | None
     checkpoint_db_path: str
     runs_db_path: str
     fetch_timeout_seconds: float
@@ -40,6 +41,7 @@ def get_settings() -> Settings:
         llm_api_key=os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY"),
         llm_base_url=os.getenv("LLM_BASE_URL") or os.getenv("OPENAI_BASE_URL"),
         tavily_api_key=os.getenv("TAVILY_API_KEY"),
+        brave_api_key=os.getenv("BRAVE_API_KEY"),
         checkpoint_db_path=os.getenv("CHECKPOINT_DB_PATH", "research.db"),
         runs_db_path=os.getenv("RUNS_DB_PATH", "research_runs.db"),
         fetch_timeout_seconds=float(os.getenv("FETCH_TIMEOUT_SECONDS", "15")),

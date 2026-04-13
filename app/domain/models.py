@@ -24,10 +24,29 @@ class ResearchPlan(BaseModel):
     tasks: list[ResearchTask]
 
 
+ContentFormat = Literal["html", "text", "markdown"]
+AcquisitionMethod = Literal["provider_raw_content", "http_fetch", "search_snippet"]
+
+
 class SearchHit(BaseModel):
     title: str
     url: str
     snippet: str = ""
+    providers: list[str] = Field(default_factory=list)
+    provider_metadata: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    raw_content: str | None = None
+    raw_content_format: ContentFormat | None = None
+
+
+class AcquiredContent(BaseModel):
+    url: str
+    title: str
+    content: str
+    content_format: ContentFormat
+    acquired_at: str
+    providers: list[str] = Field(default_factory=list)
+    acquisition_method: AcquisitionMethod
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class SourceDocument(BaseModel):
@@ -36,6 +55,9 @@ class SourceDocument(BaseModel):
     title: str
     content: str
     fetched_at: str
+    providers: list[str] = Field(default_factory=list)
+    acquisition_method: AcquisitionMethod = "http_fetch"
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class Evidence(BaseModel):
