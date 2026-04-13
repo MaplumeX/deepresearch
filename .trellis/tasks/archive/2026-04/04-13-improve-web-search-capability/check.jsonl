@@ -1,0 +1,5 @@
+{"file": ".claude/commands/trellis/finish-work.md", "reason": "Finish work checklist"}
+{"file": ".claude/commands/trellis/check.md", "reason": "Code quality check spec"}
+{"file": ".trellis/spec/backend/research-agent-runtime.md", "reason": "Verify graph/runtime contract updates stay coherent with implementation."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify fallbacks, side-effect boundaries, and test coverage."}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Verify tool/service/graph responsibilities remain separated after refactor."}

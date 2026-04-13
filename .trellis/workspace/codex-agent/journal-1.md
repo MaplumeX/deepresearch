@@ -224,3 +224,57 @@ Refactored research_worker into an internal staged subgraph, extracted determini
 ### Next Steps
 
 - None - task complete
+
+
+## Session 6: Improve multi-provider web search pipeline
+
+**Date**: 2026-04-13
+**Task**: Improve multi-provider web search pipeline
+**Branch**: `master`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Search | Added Tavily + Brave multi-provider aggregation for research worker search. |
+| Content pipeline | Reworked retrieval to use provider raw content, HTTP fetch fallback, and snippet fallback. |
+| Models | Extended backend search/source models with provider metadata and acquisition method fields. |
+| Ranking | Added cross-provider merge, host diversity handling, and acquisition-aware scoring. |
+| Verification | Added provider-aware extract tests and updated research-worker tests and runtime docs. |
+
+**Updated Files**:
+- `app/config.py`
+- `app/domain/models.py`
+- `app/tools/search.py`
+- `app/tools/fetch.py`
+- `app/tools/extract.py`
+- `app/services/research_worker.py`
+- `app/graph/subgraphs/research_worker.py`
+- `tests/unit/test_research_worker_service.py`
+- `tests/unit/test_extract_tool.py`
+- `.trellis/spec/backend/research-agent-runtime.md`
+- `README.md`
+- `docs/current-langgraph-graph.md`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ddeb196` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

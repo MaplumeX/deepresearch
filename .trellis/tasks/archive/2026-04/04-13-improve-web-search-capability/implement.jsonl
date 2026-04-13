@@ -1,0 +1,6 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Keep search/content orchestration split across domain, services, tools, and graph layers."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Track domain-model and graph-state boundary changes during provider-aware pipeline rewrite."}
+{"file": ".trellis/spec/backend/research-agent-runtime.md", "reason": "Update backend runtime contracts for richer search/source metadata and tool failure behavior."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Preserve deterministic fallbacks and keep orchestration out of tools during provider/content pipeline refactor."}
