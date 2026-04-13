@@ -1,0 +1,13 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Page/component/file placement for frontend shell refactor"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Reuse shared run/event types instead of local unions"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Avoid duplicating history/run presentation logic"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Preserve React Query and SSE ownership during UI redesign"}
+{"file": "web/src/hooks/useRunEvents.ts", "reason": "Existing SSE cache-patching pattern for realtime activity"}
+{"file": "web/src/hooks/useResearchRuns.ts", "reason": "Existing React Query pattern for run list/detail data"}
+{"file": "web/src/components/AppLayout.tsx", "reason": "Current shell to replace with workspace layout"}
+{"file": "web/src/components/RunForm.tsx", "reason": "Current form behavior to preserve while changing interaction style"}
+{"file": "web/src/components/RunSummaryTable.tsx", "reason": "Current history listing logic to adapt for sidebar/history view"}
+{"file": "web/src/pages/RunDetailPage.tsx", "reason": "Current report and activity composition to evolve into workspace view"}
+{"file": "web/src/styles.css", "reason": "Centralized stylesheet that will carry the shell redesign"}

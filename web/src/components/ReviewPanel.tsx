@@ -20,16 +20,18 @@ export function ReviewPanel({ draftReport, isSubmitting, onSubmit }: ReviewPanel
   };
 
   return (
-    <form className="panel review-panel" onSubmit={handleSubmit}>
-      <div className="section-header">
-        <h2>人工审核</h2>
-        <p>当前 run 已暂停。你可以直接继续，也可以编辑草稿后继续执行。</p>
+    <form className="thread-card review-panel" onSubmit={handleSubmit}>
+      <div className="thread-card-header">
+        <div>
+          <h3>人工审核</h3>
+          <p>当前 run 已暂停。你可以编辑草稿后继续执行，也可以直接提交当前内容。</p>
+        </div>
       </div>
       <label className="field">
         <span>草稿报告</span>
         <textarea rows={14} value={editedReport} onChange={(event) => setEditedReport(event.target.value)} />
       </label>
-      <div className="form-actions">
+      <div className="composer-actions">
         <button className="primary-button" type="submit" disabled={isSubmitting}>
           {isSubmitting ? "正在提交..." : "提交审核并继续"}
         </button>

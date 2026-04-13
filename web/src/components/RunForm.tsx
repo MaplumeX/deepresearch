@@ -38,50 +38,50 @@ export function RunForm({ isSubmitting, onSubmit }: RunFormProps) {
   });
 
   return (
-    <form className="panel form-panel" onSubmit={handleSubmit((values) => onSubmit(normalizePayload(values)))}>
-      <div className="section-header">
-        <h2>创建新研究</h2>
-        <p>填写问题和预算参数，系统会异步创建 run，并在详情页通过 SSE 推送状态变化。</p>
-      </div>
-
-      <label className="field">
-        <span>研究问题</span>
-        <textarea
-          rows={5}
-          {...register("question")}
-          placeholder="例如：比较 LangGraph deep research agent 的常见执行模型和恢复策略"
-        />
-        {errors.question ? <small>{errors.question.message}</small> : null}
-      </label>
-
-      <label className="field">
-        <span>研究范围</span>
-        <textarea rows={3} {...register("scope")} placeholder="可选：限定场景、来源偏好或语言边界" />
-        {errors.scope ? <small>{errors.scope.message}</small> : null}
-      </label>
-
-      <div className="field-grid">
-        <label className="field">
-          <span>输出语言</span>
-          <select {...register("output_language")}>
-            <option value="zh-CN">中文</option>
-            <option value="en">English</option>
-          </select>
+    <form className="composer-form" onSubmit={handleSubmit((values) => onSubmit(normalizePayload(values)))}>
+      <div className="composer-card">
+        <label className="field composer-field">
+          <span>研究问题</span>
+          <textarea
+            className="composer-textarea"
+            rows={7}
+            {...register("question")}
+            placeholder="例如：比较 LangGraph deep research agent 的常见执行模型和恢复策略"
+          />
+          {errors.question ? <small>{errors.question.message}</small> : null}
         </label>
-        <label className="field">
-          <span>最大迭代轮次</span>
-          <input type="number" min={1} max={5} {...register("max_iterations")} />
-        </label>
-        <label className="field">
-          <span>最大并行任务数</span>
-          <input type="number" min={1} max={5} {...register("max_parallel_tasks")} />
-        </label>
-      </div>
 
-      <div className="form-actions">
-        <button className="primary-button" type="submit" disabled={isSubmitting}>
-          {isSubmitting ? "正在创建..." : "创建 run"}
-        </button>
+        <label className="field">
+          <span>研究范围</span>
+          <textarea rows={3} {...register("scope")} placeholder="可选：限定场景、来源偏好、排除项或语言边界" />
+          {errors.scope ? <small>{errors.scope.message}</small> : null}
+        </label>
+
+        <div className="composer-toolbar">
+          <div className="composer-options">
+            <label className="field compact-field">
+              <span>输出语言</span>
+              <select {...register("output_language")}>
+                <option value="zh-CN">中文</option>
+                <option value="en">English</option>
+              </select>
+            </label>
+            <label className="field compact-field">
+              <span>最大迭代轮次</span>
+              <input type="number" min={1} max={5} {...register("max_iterations")} />
+            </label>
+            <label className="field compact-field">
+              <span>最大并行任务数</span>
+              <input type="number" min={1} max={5} {...register("max_parallel_tasks")} />
+            </label>
+          </div>
+
+          <div className="composer-actions">
+            <button className="primary-button" type="submit" disabled={isSubmitting}>
+              {isSubmitting ? "正在创建..." : "开始研究"}
+            </button>
+          </div>
+        </div>
       </div>
     </form>
   );
