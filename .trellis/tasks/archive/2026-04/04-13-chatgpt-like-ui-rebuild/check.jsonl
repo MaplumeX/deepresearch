@@ -1,0 +1,6 @@
+{"file": ".claude/commands/trellis/finish-work.md", "reason": "Finish work checklist"}
+{"file": ".claude/commands/trellis/check.md", "reason": "Code quality check spec"}
+{"file": ".trellis/spec/backend/research-agent-runtime.md", "reason": "Review new conversation and run contracts against backend runtime spec"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Verify React Query and SSE ownership stayed coherent"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Review backend to frontend payload alignment after refactor"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Verify new frontend conversation contracts stay centralized and typed"}

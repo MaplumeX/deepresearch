@@ -278,3 +278,48 @@ Refactored research_worker into an internal staged subgraph, extracted determini
 ### Next Steps
 
 - None - task complete
+
+
+## Session 7: ChatGPT风格线程工作台改造
+
+**Date**: 2026-04-13
+**Task**: ChatGPT风格线程工作台改造
+**Branch**: `master`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Backend | 引入 conversation + message + run 的混合模型，新增 conversation 查询与 follow-up 创建接口，并保持单 run 执行引擎兼容。 |
+| Frontend | 重构为左侧会话历史 + 中间线程 + 底部 composer 的 ChatGPT 风格工作台，支持在会话内继续追问。 |
+| Realtime | SSE 事件同时回填 run 与 conversation cache，使线程内容和侧栏摘要同步更新。 |
+| Spec | 同步 backend runtime 与 frontend state/type safety 规范，补齐跨层契约。 |
+| Verification | `uv run pytest tests/unit`、`npm test`、`npm run typecheck`、`npm run build` 全部通过。 |
+
+**Key Outcomes**:
+- 旧的 `/runs/:runId` 入口现在会跳转到对应 conversation。
+- 新会话与 follow-up 都会生成新的 run，但归属于同一个 conversation 线程。
+- 人工审核恢复仍保留在单个 run 生命周期内，并在会话线程中展示。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7558be5` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

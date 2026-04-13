@@ -1,0 +1,10 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": ".trellis/spec/backend/research-agent-runtime.md", "reason": "API and run lifecycle contracts change in this task"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "New persistence and manager logic must respect backend module boundaries"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "React Query and SSE remain the server state boundary"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse existing run hooks and components where the behavior still fits"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Conversation payloads now span storage, API, hooks, and UI"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "New conversation contracts must stay centralized under web/src/types"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Conversation workspace refactor should keep routes/pages/hooks/types organized"}
