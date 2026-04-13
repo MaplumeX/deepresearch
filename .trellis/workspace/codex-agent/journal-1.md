@@ -323,3 +323,49 @@ Refactored research_worker into an internal staged subgraph, extracted determini
 ### Next Steps
 
 - None - task complete
+
+
+## Session 8: 修复 sqlite checkpoint 兼容性
+
+**Date**: 2026-04-13
+**Task**: 修复 sqlite checkpoint 兼容性
+**Branch**: `master`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| 项目 | 内容 |
+|------|------|
+| 问题 | 对话创建/续聊时，LangGraph sqlite checkpointer 在当前 `aiosqlite` 版本下因缺少 `Connection.is_alive()` 失败 |
+| 修复 | 在 `app/runtime.py` 增加 runtime 兼容层，统一通过 `_open_checkpointer()` 打开 saver，并在进入 `AsyncSqliteSaver` 前补齐 `aiosqlite.Connection.is_alive()` shim |
+| 测试 | 新增 `tests/unit/test_runtime.py` 回归测试，验证缺少 `is_alive()` 时 checkpoint 初始化仍可完成 |
+| 规范 | 更新 backend runtime spec，记录 sqlite checkpoint 兼容性约束与测试要求 |
+
+**验证**:
+- `uv run pytest tests/unit`
+- `.venv/bin/python -m compileall app tests`
+
+**提交**:
+- `2765b9b fix(runtime): patch sqlite checkpoint compatibility`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2765b9b` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

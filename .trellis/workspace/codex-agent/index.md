@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 7
+- **Total Sessions**: 8
 - **Last Active**: 2026-04-13
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~325 | Active |
+| `journal-1.md` | ~371 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 8 | 2026-04-13 | 修复 sqlite checkpoint 兼容性 | `2765b9b` | `master` |
 | 7 | 2026-04-13 | ChatGPT风格线程工作台改造 | `7558be5` | `master` |
 | 6 | 2026-04-13 | Improve multi-provider web search pipeline | `ddeb196` | `master` |
 | 5 | 2026-04-13 | Upgrade research_worker to staged subgraph | `69196c4` | `master` |
