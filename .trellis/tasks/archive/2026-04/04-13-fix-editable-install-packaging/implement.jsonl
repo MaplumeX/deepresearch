@@ -1,0 +1,5 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Keep the existing single package root app/ and do not change source layout."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Keep the fix minimal and avoid unnecessary packaging complexity."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "This change updates configuration, so search-first and single-source rules apply."}

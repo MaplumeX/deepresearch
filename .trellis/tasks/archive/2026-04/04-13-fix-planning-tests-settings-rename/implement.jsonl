@@ -1,0 +1,5 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Keep the fix scoped to stale unit tests and verify deterministic fallback still works without LLM credentials."}
+{"file": ".trellis/spec/backend/research-agent-runtime.md", "reason": "Planning tests should match the current environment contract and deterministic fallback behavior."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Search-first confirmed the stale field name exists in one test file only."}
