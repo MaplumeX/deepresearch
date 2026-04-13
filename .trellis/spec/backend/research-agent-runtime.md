@@ -47,6 +47,16 @@ def synthesize_report_node(state: dict) -> dict
 def citation_audit(state: dict) -> dict
 ```
 
+#### Worker Internal Stages
+
+```python
+def rewrite_queries_node(state: dict) -> dict
+async def search_and_rank_node(state: dict) -> dict
+async def fetch_and_filter_node(state: dict) -> dict
+def extract_and_score_node(state: dict) -> dict
+def emit_results_node(state: dict) -> dict
+```
+
 ### 3. Contracts
 
 #### Request Contract
@@ -143,8 +153,10 @@ REQUIRE_HUMAN_REVIEW     optional bool, defaults to false
 | run store -> detail/list API | `run_id` or list query | run must exist for detail/event routes | return 404 when run is missing |
 | ingest_request -> graph state | request payload | Normalize integer budgets before Pydantic validation | Invalid values are clamped first, then validated |
 | planner -> tasks | question + gaps | Limit task count to `max_parallel_tasks` | Fall back to deterministic task plan if the OpenAI-compatible model path is unavailable |
+| task -> worker query rewrite | task question + request scope | Build at most 3 deduplicated queries for a single task | Fall back to deterministic query set without LLM |
 | search -> fetch | search hits | Require non-empty URL before fetch | Skip invalid or failed hits |
 | fetch -> extract | HTML/text payload | Extract main text and ignore empty content | Skip empty or failed pages |
+| extract -> evidence scoring | normalized source documents | Drop short or weak pages, choose a focused snippet, and compute bounded `relevance_score` / `confidence` | Skip sources that do not meet the deterministic relevance floor |
 | synthesize -> audit | markdown report | Require citations to map to existing `sources` | Set warning and require review when unknown citation ids exist |
 | review -> finalize | resume payload | Optional `edited_report` override only | Keep draft report when no edited report is supplied |
 | resume API -> runtime | `approved`, optional `edited_report` | run must be in `interrupted` status before resume | return 409 if client resumes a non-interrupted run |
@@ -155,7 +167,9 @@ REQUIRE_HUMAN_REVIEW     optional bool, defaults to false
 #### Good
 - Request contains a valid question and optional limits.
 - Create API returns queued run immediately.
+- Query rewrite produces focused task queries.
 - Search and fetch produce sources.
+- Evidence scoring keeps only relevant sources and emits bounded scores.
 - Synthesis emits markdown with valid `[source_id]` citations.
 - Audit passes without unknown citations.
 - Detail API and SSE stream both reflect the same terminal snapshot.
@@ -163,6 +177,7 @@ REQUIRE_HUMAN_REVIEW     optional bool, defaults to false
 #### Base
 - No OpenAI-compatible credentials are configured.
 - Planner and synthesizer fall back to deterministic logic.
+- Worker query rewrite, ranking, filtering, and scoring still run deterministically without model access.
 - Search provider may return no results and the graph still completes with an empty-evidence report.
 - Browser refreshes during a running job and the frontend restores state via detail API before reopening SSE.
 
@@ -171,6 +186,7 @@ REQUIRE_HUMAN_REVIEW     optional bool, defaults to false
 - `max_iterations` or `max_parallel_tasks` outside the accepted range after normalization.
 - Report cites a source id that is not present in `sources`.
 - Tool fetch fails for all URLs and leaves a task without evidence.
+- Fetch returns only thin or irrelevant pages and the worker emits no evidence for that task.
 - Client attempts to resume a completed run.
 - Server restarts while queued/running jobs exist and leaves stale statuses unmarked.
 
@@ -178,6 +194,7 @@ REQUIRE_HUMAN_REVIEW     optional bool, defaults to false
 
 - Unit test `app/services/citations.py` for citation extraction and missing citation detection.
 - Unit test `app/services/dedupe.py` for duplicate-evidence selection.
+- Unit test `app/services/research_worker.py` for query rewrite, search-hit ranking, page filtering, and evidence scoring.
 - Unit test `app/graph/nodes/gap_check.py` for missing-task and corroboration gaps.
 - Unit test deterministic planning fallback when model credentials are absent.
 - Unit test `app/run_store.py` for persisted run snapshots.

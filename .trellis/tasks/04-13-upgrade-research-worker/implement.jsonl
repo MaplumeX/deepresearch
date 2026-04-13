@@ -1,0 +1,6 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Graph node and service boundary rules for worker subgraph refactor"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Pure service extraction and deterministic fallback requirements"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Avoid duplicating scoring and ranking logic during service extraction"}
+{"file": ".trellis/spec/backend/research-agent-runtime.md", "reason": "Graph state and runtime contract for research workflow changes"}

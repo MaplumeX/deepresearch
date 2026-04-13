@@ -4,7 +4,7 @@ import hashlib
 import re
 from datetime import UTC, datetime
 
-from app.domain.models import Evidence, ResearchTask, SourceDocument
+from app.domain.models import SourceDocument
 
 
 def _extract_main_text(raw_content: str) -> str:
@@ -27,36 +27,23 @@ def _make_source_id(url: str) -> str:
     return f"S{digest}"
 
 
-def extract_evidence(task: ResearchTask, pages: list[dict]) -> tuple[list[Evidence], list[SourceDocument]]:
-    findings: list[Evidence] = []
+def extract_sources(pages: list[dict]) -> list[SourceDocument]:
     sources: list[SourceDocument] = []
 
-    for index, page in enumerate(pages, start=1):
+    for page in pages:
         content = _extract_main_text(page.get("content", ""))
         if not content:
             continue
 
         source_id = _make_source_id(page["url"])
-        source = SourceDocument(
-            source_id=source_id,
-            url=page["url"],
-            title=page.get("title", page["url"]),
-            content=content,
-            fetched_at=datetime.now(UTC).isoformat(),
+        sources.append(
+            SourceDocument(
+                source_id=source_id,
+                url=page["url"],
+                title=page.get("title", page["url"]),
+                content=content,
+                fetched_at=datetime.now(UTC).isoformat(),
+            )
         )
-        evidence = Evidence(
-            evidence_id=f"{task.task_id}-evidence-{index}",
-            task_id=task.task_id,
-            claim=f"{source.title} contains evidence relevant to {task.title.lower()}.",
-            snippet=content[:400],
-            source_id=source_id,
-            url=source.url,
-            title=source.title,
-            relevance_score=0.6,
-            confidence=0.4,
-        )
-        sources.append(source)
-        findings.append(evidence)
 
-    return findings, sources
-
+    return sources

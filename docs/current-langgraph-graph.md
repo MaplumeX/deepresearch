@@ -172,23 +172,25 @@ flowchart TD
 
 职责：
 
-1. 校验 `task` 与 `request`
-2. 为单个任务构造查询
-3. 调用副作用边界：
-   - `search_web()`
-   - `fetch_pages()`
-   - `extract_evidence()`
+1. 作为单个 research task 的内部子图包装器
+2. 校验 `task` 与 `request`
+3. 依次执行子阶段：
+   - `rewrite_queries`
+   - `search_and_rank`
+   - `fetch_and_filter`
+   - `extract_and_score`
+   - `emit_results`
 4. 产出：
    - `raw_findings`
    - `raw_source_batches`
 
 特点：
 
-- 这是图里最核心的外部 I/O 执行节点
-- 查询数最多 2 条：
-  - `task.question`
-  - `task.question + scope`
-- 如果没有抓到内容，会返回空列表而不是抛错
+- 这是图里最核心的 task 级外部 I/O 执行边界
+- 外层仍把它当作单个 `research_worker` 节点，但内部已经拆成子图
+- 查询改写、搜索结果排序、页面筛选、证据评分在子图里完成
+- `app/tools/extract.py` 现在只负责正文提取和 `SourceDocument` 生成
+- 如果没有抓到有效内容，仍返回空列表而不是抛错，保持外层契约兼容
 
 ### 4.6 `merge_evidence`
 

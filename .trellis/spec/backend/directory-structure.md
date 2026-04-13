@@ -55,18 +55,22 @@ tests/
 - One file per node under `app/graph/nodes/`
 - Node files should only read state, call services/tools, and return partial state updates
 - Routing helpers belong next to the node they support when the logic is local
+- Use `app/graph/subgraphs/` when one workflow stage needs multiple internal steps but the outer graph contract should stay stable
+- Subgraph entry points should still expose a narrow state interface to the outer graph, for example task-level `request` + `task` in and reducer-friendly payloads out
 
 ### Services Layer
 
 - Keep services deterministic and side-effect free
 - Put merge, dedupe, citation, budget, and synthesis fallback logic here
 - Prefer services when logic needs unit tests without external dependencies
+- Put ranking, filtering, scoring, and snippet-selection logic here when a worker needs business decisions without network side effects
 
 ### Tools Layer
 
 - Search, fetch, and extraction adapters live here
 - Tool code may fail or return partial results; nodes must tolerate that
 - Do not hide business decisions inside tools
+- Extraction tools should normalize raw payloads into source documents, while claim generation and evidence scoring stay in `app/services/`
 
 ### Runtime Adapters
 
@@ -88,5 +92,6 @@ tests/
 
 - `app/graph/builder.py`: main workflow assembly
 - `app/graph/subgraphs/research_worker.py`: worker execution boundary
+- `app/services/research_worker.py`: deterministic ranking, filtering, and evidence scoring for worker stages
 - `app/services/citations.py`: pure validation helper
 - `app/tools/fetch.py`: external HTTP boundary
