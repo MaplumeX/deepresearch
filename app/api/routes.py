@@ -3,8 +3,22 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from app.api.schemas import ResumeRequest, RunDetailResponse, RunListResponse, RunRequest
-from app.run_manager import InvalidRunStateError, ResearchRunManager, RunNotFoundError
+from app.api.schemas import (
+    ConversationDetailResponse,
+    ConversationListResponse,
+    ConversationMutationResponse,
+    ConversationTurnRequest,
+    ResumeRequest,
+    RunDetailResponse,
+    RunListResponse,
+    RunRequest,
+)
+from app.run_manager import (
+    ConversationNotFoundError,
+    InvalidRunStateError,
+    ResearchRunManager,
+    RunNotFoundError,
+)
 
 
 router = APIRouter()
@@ -75,3 +89,51 @@ async def resume_run(run_id: str, http_request: Request, payload: ResumeRequest)
     except InvalidRunStateError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return RunDetailResponse(run=run)
+
+
+@router.post("/api/research/conversations", response_model=ConversationMutationResponse)
+async def create_conversation(
+    http_request: Request,
+    payload: ConversationTurnRequest,
+) -> ConversationMutationResponse:
+    manager = get_run_manager(http_request)
+    conversation, run = await manager.create_conversation(payload.model_dump(exclude_none=True))
+    return ConversationMutationResponse(conversation=conversation, run=run)
+
+
+@router.get("/api/research/conversations", response_model=ConversationListResponse)
+async def list_conversations(http_request: Request) -> ConversationListResponse:
+    manager = get_run_manager(http_request)
+    return ConversationListResponse(conversations=manager.list_conversations())
+
+
+@router.get("/api/research/conversations/{conversation_id}", response_model=ConversationDetailResponse)
+async def get_conversation(conversation_id: str, http_request: Request) -> ConversationDetailResponse:
+    manager = get_run_manager(http_request)
+    try:
+        conversation = manager.get_conversation(conversation_id)
+    except ConversationNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Conversation {conversation_id} was not found.") from exc
+    return ConversationDetailResponse(conversation=conversation)
+
+
+@router.post(
+    "/api/research/conversations/{conversation_id}/messages",
+    response_model=ConversationMutationResponse,
+)
+async def create_conversation_message(
+    conversation_id: str,
+    http_request: Request,
+    payload: ConversationTurnRequest,
+) -> ConversationMutationResponse:
+    manager = get_run_manager(http_request)
+    try:
+        conversation, run = await manager.create_message(
+            conversation_id=conversation_id,
+            request_payload=payload.model_dump(exclude_none=True),
+        )
+    except ConversationNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Conversation {conversation_id} was not found.") from exc
+    except InvalidRunStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return ConversationMutationResponse(conversation=conversation, run=run)

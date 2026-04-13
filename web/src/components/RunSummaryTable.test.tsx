@@ -8,6 +8,10 @@ import type { ResearchRunSummary } from "../types/research";
 const runs: ResearchRunSummary[] = [
   {
     run_id: "run-1",
+    conversation_id: "conversation-1",
+    origin_message_id: "message-1",
+    assistant_message_id: "message-2",
+    parent_run_id: null,
     status: "running",
     request: {
       question: "问题一",
@@ -22,6 +26,10 @@ const runs: ResearchRunSummary[] = [
   },
   {
     run_id: "run-2",
+    conversation_id: "conversation-2",
+    origin_message_id: "message-3",
+    assistant_message_id: "message-4",
+    parent_run_id: null,
     status: "completed",
     request: {
       question: "问题二",

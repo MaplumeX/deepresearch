@@ -7,12 +7,21 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from app.config import Settings
-from app.domain.models import ResearchRunDetail, ResearchRunEvent, ResearchRunSummary, RunEventType, RunStatus
-from app.run_store import ResearchRunStore
+from app.domain.models import (
+    ResearchConversationDetail,
+    ResearchConversationSummary,
+    ResearchRunDetail,
+    ResearchRunEvent,
+    ResearchRunSummary,
+    RunEventType,
+    RunStatus,
+)
+from app.run_store import ResearchRunStore, build_conversation_title
 from app.runtime import resume_research, run_research
 
 
 TERMINAL_RUN_STATUSES = {"completed", "failed"}
+ACTIVE_RUN_STATUSES = {"queued", "running"}
 
 
 def utc_now_iso() -> str:
@@ -20,6 +29,10 @@ def utc_now_iso() -> str:
 
 
 class RunNotFoundError(Exception):
+    pass
+
+
+class ConversationNotFoundError(Exception):
     pass
 
 
@@ -69,20 +82,45 @@ class ResearchRunManager:
                 await task
 
     async def create_run(self, request_payload: dict) -> ResearchRunDetail:
-        run_id = uuid4().hex
-        run = self._store.create_run(run_id, request_payload)
-        self._publish("run.created", run, {"run": run.model_dump()})
-        self._start_background_task(run_id, self._execute_run(run_id, request_payload))
+        _, run = self._create_turn_in_new_conversation(request_payload)
         return run
+
+    async def create_conversation(self, request_payload: dict) -> tuple[ResearchConversationDetail, ResearchRunDetail]:
+        return self._create_turn_in_new_conversation(request_payload)
+
+    async def create_message(
+        self,
+        conversation_id: str,
+        request_payload: dict,
+    ) -> tuple[ResearchConversationDetail, ResearchRunDetail]:
+        conversation = self.get_conversation(conversation_id)
+        payload = dict(request_payload)
+        parent_run_id = payload.pop("parent_run_id", None)
+        resolved_parent_run_id = self._resolve_parent_run_id(conversation, parent_run_id)
+        return self._create_turn(
+            conversation_id=conversation_id,
+            request_payload=payload,
+            title=None,
+            parent_run_id=resolved_parent_run_id,
+        )
 
     def list_runs(self) -> list[ResearchRunSummary]:
         return self._store.list_runs()
+
+    def list_conversations(self) -> list[ResearchConversationSummary]:
+        return self._store.list_conversations()
 
     def get_run(self, run_id: str) -> ResearchRunDetail:
         run = self._store.get_run(run_id)
         if run is None:
             raise RunNotFoundError(run_id)
         return run
+
+    def get_conversation(self, conversation_id: str) -> ResearchConversationDetail:
+        conversation = self._store.get_conversation(conversation_id)
+        if conversation is None:
+            raise ConversationNotFoundError(conversation_id)
+        return conversation
 
     async def resume_run(self, run_id: str, resume_payload: dict) -> ResearchRunDetail:
         run = self.get_run(run_id)
@@ -92,13 +130,13 @@ class ResearchRunManager:
             raise InvalidRunStateError(f"Run {run_id} is already active.")
 
         updated_run = self._store.set_status(run_id, "running")
-        self._publish("run.resumed", updated_run, {"run": updated_run.model_dump(), "resume_payload": resume_payload})
+        self._publish("run.resumed", updated_run, {"resume_payload": resume_payload})
         self._start_background_task(run_id, self._execute_resume(run_id, resume_payload))
         return updated_run
 
     async def stream_events(self, run_id: str):
         run = self.get_run(run_id)
-        initial_event = self._build_event(self._event_type_for_status(run.status), run, {"run": run.model_dump()})
+        initial_event = self._build_event(self._event_type_for_status(run.status), run, {})
         yield self._format_sse(initial_event)
 
         if run.status in TERMINAL_RUN_STATUSES:
@@ -119,6 +157,62 @@ class ResearchRunManager:
         finally:
             self._broker.unsubscribe(run_id, queue)
 
+    def _create_turn_in_new_conversation(
+        self,
+        request_payload: dict,
+    ) -> tuple[ResearchConversationDetail, ResearchRunDetail]:
+        title = build_conversation_title(str(request_payload.get("question", "")))
+        return self._create_turn(
+            conversation_id=uuid4().hex,
+            request_payload=request_payload,
+            title=title,
+            parent_run_id=None,
+        )
+
+    def _create_turn(
+        self,
+        *,
+        conversation_id: str,
+        request_payload: dict,
+        title: str | None,
+        parent_run_id: str | None,
+    ) -> tuple[ResearchConversationDetail, ResearchRunDetail]:
+        run_id = uuid4().hex
+        origin_message_id = uuid4().hex
+        assistant_message_id = uuid4().hex
+        conversation, run = self._store.create_conversation_turn(
+            conversation_id=conversation_id,
+            run_id=run_id,
+            request=request_payload,
+            origin_message_id=origin_message_id,
+            assistant_message_id=assistant_message_id,
+            title=title,
+            parent_run_id=parent_run_id,
+        )
+        self._publish("run.created", run, {})
+        self._start_background_task(run_id, self._execute_run(run_id, request_payload))
+        return conversation, run
+
+    def _resolve_parent_run_id(
+        self,
+        conversation: ResearchConversationDetail,
+        parent_run_id: str | None,
+    ) -> str | None:
+        candidate = parent_run_id
+        if candidate is None and conversation.runs:
+            candidate = conversation.runs[-1].run_id
+        if candidate is None:
+            return None
+
+        parent_run = self.get_run(candidate)
+        if parent_run.conversation_id != conversation.conversation_id:
+            raise InvalidRunStateError(
+                f"Run {candidate} does not belong to conversation {conversation.conversation_id}.",
+            )
+        if parent_run.status in ACTIVE_RUN_STATUSES:
+            raise InvalidRunStateError(f"Run {candidate} is still active and cannot accept follow-up turns yet.")
+        return candidate
+
     def _start_background_task(self, run_id: str, coroutine) -> None:
         task = asyncio.create_task(coroutine)
         self._active_tasks[run_id] = task
@@ -132,7 +226,7 @@ class ResearchRunManager:
 
     async def _execute_run(self, run_id: str, request_payload: dict) -> None:
         running_run = self._store.set_status(run_id, "running")
-        self._publish("run.status_changed", running_run, {"run": running_run.model_dump()})
+        self._publish("run.status_changed", running_run, {})
         self._publish("run.progress", running_run, {"message": "Research execution started."})
         await self._finish_execution(run_id, run_research(request_payload, run_id))
 
@@ -146,28 +240,38 @@ class ResearchRunManager:
             result = await execution
         except asyncio.CancelledError:
             failed_run = self._store.mark_failed(run_id, "Run was cancelled during shutdown.")
-            self._publish("run.failed", failed_run, {"run": failed_run.model_dump()})
+            self._publish("run.failed", failed_run, {})
             raise
         except Exception as exc:
             failed_run = self._store.mark_failed(run_id, str(exc))
-            self._publish("run.failed", failed_run, {"run": failed_run.model_dump()})
+            self._publish("run.failed", failed_run, {})
             return
 
         status: RunStatus = "interrupted" if "__interrupt__" in result else "completed"
         updated_run = self._store.store_result(run_id, status, result)
         event_type = "run.interrupted" if status == "interrupted" else "run.completed"
-        self._publish(event_type, updated_run, {"run": updated_run.model_dump()})
+        self._publish(event_type, updated_run, {})
 
     def _publish(self, event_type: RunEventType, run: ResearchRunDetail, data: dict) -> None:
         self._broker.publish(self._build_event(event_type, run, data))
 
     def _build_event(self, event_type: RunEventType, run: ResearchRunDetail, data: dict) -> ResearchRunEvent:
+        payload = {
+            "run": run.model_dump(),
+        }
+        conversation = self._store.get_conversation_summary(run.conversation_id)
+        if conversation is not None:
+            payload["conversation"] = conversation.model_dump()
+        assistant_message = self._store.get_message(run.assistant_message_id)
+        if assistant_message is not None:
+            payload["assistant_message"] = assistant_message.model_dump()
+        payload.update(data)
         return ResearchRunEvent(
             type=event_type,
             run_id=run.run_id,
             status=run.status,
             timestamp=utc_now_iso(),
-            data=data,
+            data=payload,
         )
 
     def _event_type_for_status(self, status: RunStatus) -> RunEventType:

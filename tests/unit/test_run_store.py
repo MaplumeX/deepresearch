@@ -17,7 +17,7 @@ class ResearchRunStoreTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
-    def test_create_and_list_runs(self) -> None:
+    def test_create_run_also_creates_conversation_thread(self) -> None:
         created = self.store.create_run(
             "run-1",
             {
@@ -26,15 +26,57 @@ class ResearchRunStoreTest(unittest.TestCase):
             },
         )
 
-        listed = self.store.list_runs()
+        listed_runs = self.store.list_runs()
+        listed_conversations = self.store.list_conversations()
+        conversation = self.store.get_conversation(created.conversation_id)
 
         self.assertEqual(created.status, "queued")
-        self.assertEqual(len(listed), 1)
-        self.assertEqual(listed[0].run_id, "run-1")
-        self.assertEqual(listed[0].request.question, "How do I build a deep research agent?")
+        self.assertEqual(created.conversation_id, "run-1")
+        self.assertEqual(len(listed_runs), 1)
+        self.assertEqual(len(listed_conversations), 1)
+        self.assertIsNotNone(conversation)
+        self.assertEqual(len(conversation.messages), 2)
+        self.assertEqual(conversation.messages[0].role, "user")
+        self.assertEqual(conversation.messages[1].role, "assistant")
 
-    def test_store_result_extracts_warnings(self) -> None:
-        self.store.create_run(
+    def test_create_follow_up_turn_links_to_parent_run(self) -> None:
+        initial = self.store.create_run(
+            "run-1",
+            {
+                "question": "Question",
+                "output_language": "zh-CN",
+            },
+        )
+        self.store.store_result(
+            "run-1",
+            "completed",
+            {
+                "final_report": "# Final",
+                "warnings": [],
+            },
+        )
+
+        _, follow_up = self.store.create_conversation_turn(
+            conversation_id=initial.conversation_id,
+            run_id="run-2",
+            request={
+                "question": "Follow-up",
+                "output_language": "zh-CN",
+            },
+            origin_message_id="message-3",
+            assistant_message_id="message-4",
+            parent_run_id="run-1",
+        )
+
+        conversation = self.store.get_conversation(initial.conversation_id)
+
+        self.assertEqual(follow_up.parent_run_id, "run-1")
+        self.assertIsNotNone(conversation)
+        self.assertEqual(len(conversation.messages), 4)
+        self.assertEqual(conversation.messages[2].parent_message_id, initial.assistant_message_id)
+
+    def test_store_result_extracts_warnings_and_updates_assistant_message(self) -> None:
+        created = self.store.create_run(
             "run-2",
             {
                 "question": "Question",
@@ -51,10 +93,13 @@ class ResearchRunStoreTest(unittest.TestCase):
                 "__interrupt__": [{"kind": "human_review"}],
             },
         )
+        assistant_message = self.store.get_message(created.assistant_message_id)
 
         self.assertEqual(updated.status, "interrupted")
         self.assertEqual(updated.warnings, ["Need manual review"])
         self.assertEqual(updated.result["draft_report"], "# Draft")
+        self.assertIsNotNone(assistant_message)
+        self.assertEqual(assistant_message.content, "# Draft")
 
 
 if __name__ == "__main__":

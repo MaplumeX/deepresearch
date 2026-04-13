@@ -93,6 +93,10 @@ RunEventType = Literal[
 
 class ResearchRunSummary(BaseModel):
     run_id: str
+    conversation_id: str
+    origin_message_id: str
+    assistant_message_id: str
+    parent_run_id: str | None = None
     status: RunStatus
     request: ResearchRequest
     error_message: str | None = None
@@ -104,6 +108,34 @@ class ResearchRunSummary(BaseModel):
 class ResearchRunDetail(ResearchRunSummary):
     result: dict[str, Any] | None = None
     warnings: list[str] = Field(default_factory=list)
+
+
+ConversationMessageRole = Literal["user", "assistant"]
+
+
+class ConversationMessage(BaseModel):
+    message_id: str
+    conversation_id: str
+    role: ConversationMessageRole
+    content: str
+    run_id: str | None = None
+    parent_message_id: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class ResearchConversationSummary(BaseModel):
+    conversation_id: str
+    title: str
+    latest_message_preview: str
+    latest_run_status: RunStatus | None = None
+    created_at: str
+    updated_at: str
+
+
+class ResearchConversationDetail(ResearchConversationSummary):
+    messages: list[ConversationMessage] = Field(default_factory=list)
+    runs: list[ResearchRunDetail] = Field(default_factory=list)
 
 
 class ResearchRunEvent(BaseModel):

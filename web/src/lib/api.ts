@@ -1,4 +1,10 @@
 import type {
+  ConversationDetailResponse,
+  ConversationListResponse,
+  ConversationMutationResponse,
+  ConversationTurnRequest,
+  ResearchConversationDetail,
+  ResearchConversationSummary,
   ResearchRun,
   ResumeRequest,
   RunDetailResponse,
@@ -74,6 +80,33 @@ export async function resumeRun(runId: string, payload: ResumeRequest): Promise<
     body: JSON.stringify(payload),
   });
   return response.run;
+}
+
+export async function createConversation(payload: ConversationTurnRequest): Promise<ConversationMutationResponse> {
+  return requestJson<ConversationMutationResponse>("/api/research/conversations", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listConversations(): Promise<ResearchConversationSummary[]> {
+  const response = await requestJson<ConversationListResponse>("/api/research/conversations");
+  return response.conversations;
+}
+
+export async function getConversation(conversationId: string): Promise<ResearchConversationDetail> {
+  const response = await requestJson<ConversationDetailResponse>(`/api/research/conversations/${conversationId}`);
+  return response.conversation;
+}
+
+export async function createConversationMessage(
+  conversationId: string,
+  payload: ConversationTurnRequest,
+): Promise<ConversationMutationResponse> {
+  return requestJson<ConversationMutationResponse>(`/api/research/conversations/${conversationId}/messages`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export function createRunEventSource(runId: string): EventSource {

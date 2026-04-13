@@ -20,8 +20,8 @@ export function ReviewPanel({ draftReport, isSubmitting, onSubmit }: ReviewPanel
   };
 
   return (
-    <form className="thread-card review-panel" onSubmit={handleSubmit}>
-      <div className="thread-card-header">
+    <form className="review-panel" onSubmit={handleSubmit}>
+      <div className="review-panel-header">
         <div>
           <h3>人工审核</h3>
           <p>当前 run 已暂停。你可以编辑草稿后继续执行，也可以直接提交当前内容。</p>

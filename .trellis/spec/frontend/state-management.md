@@ -23,9 +23,9 @@ Questions to answer:
 ## State Categories
 
 - Local state: transient form edits and UI-only event logs
-- URL state: route params such as `runId`
-- Server state: run list, run detail, and resume/create mutations
-- Realtime state: SSE events merged into React Query caches
+- URL state: route params such as `conversationId` and legacy `runId`
+- Server state: conversation list/detail, run detail, and conversation/resume mutations
+- Realtime state: SSE events merged into React Query caches for both run detail and conversation detail
 
 ---
 
@@ -33,14 +33,15 @@ Questions to answer:
 
 - Prefer React Query cache for data fetched from the backend
 - Promote to explicit global state only when multiple distant routes need non-server UI state
-- Do not build a second client-side store for run detail if React Query + SSE already own it
+- Do not build a second client-side store for run or conversation detail if React Query + SSE already own it
 
 ---
 
 ## Server State
 
-- Use TanStack Query for list/detail queries and create/resume mutations
-- Let SSE patch list/detail caches in place so the UI does not need polling
+- Use TanStack Query for conversation list/detail queries, legacy run queries, and create/resume mutations
+- Let SSE patch both run caches and conversation caches in place so the UI does not need polling
+- Prefer conversation detail as the thread source of truth; use run detail mainly for legacy route compatibility or targeted drill-down
 - Close realtime subscriptions when a run reaches `completed` or `failed`
 
 ---
@@ -49,3 +50,4 @@ Questions to answer:
 
 - Duplicating backend status strings inside multiple components instead of importing shared types
 - Mixing SSE-updated detail state with a separate local copy that silently drifts
+- Updating run detail from SSE but forgetting to patch the linked conversation summary/message cache

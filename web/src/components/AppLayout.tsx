@@ -1,48 +1,46 @@
 import { NavLink, Outlet } from "react-router-dom";
 
-import { useRunsQuery } from "../hooks/useResearchRuns";
-import { RunSummaryTable } from "./RunSummaryTable";
+import { useConversationsQuery } from "../hooks/useConversations";
+import { ConversationList } from "./ConversationList";
+
 
 export function AppLayout() {
-  const runsQuery = useRunsQuery();
-  const recentRuns = (runsQuery.data ?? []).slice(0, 8);
+  const conversationsQuery = useConversationsQuery();
 
   return (
-    <div className="workspace-shell">
-      <aside className="workspace-sidebar" aria-label="研究导航">
+    <div className="app-shell">
+      <aside className="app-sidebar" aria-label="会话导航">
         <div className="sidebar-branding">
           <NavLink to="/" end className="sidebar-brand">
             Deep Research
           </NavLink>
-          <p className="sidebar-note">研究工作台</p>
+          <p>会话式研究工作台</p>
         </div>
 
-        <nav className="sidebar-nav" aria-label="主导航">
+        <nav className="sidebar-actions" aria-label="主导航">
           <NavLink to="/" end className={({ isActive }) => navClassName(isActive)}>
-            新建研究
+            新建会话
           </NavLink>
           <NavLink to="/runs" end className={({ isActive }) => navClassName(isActive)}>
-            历史记录
+            所有运行
           </NavLink>
         </nav>
 
         <section className="sidebar-section">
           <div className="sidebar-section-header">
-            <h2>最近记录</h2>
+            <h2>最近会话</h2>
           </div>
-          {runsQuery.isLoading ? <div className="sidebar-feedback">正在加载历史记录...</div> : null}
-          {runsQuery.isError ? <div className="sidebar-feedback sidebar-feedback-error">历史记录加载失败。</div> : null}
-          {!runsQuery.isLoading && !runsQuery.isError ? (
-            <RunSummaryTable runs={recentRuns} emptyText="暂无研究记录。" variant="sidebar" />
+          {conversationsQuery.isLoading ? <div className="sidebar-feedback">正在加载会话...</div> : null}
+          {conversationsQuery.isError ? <div className="sidebar-feedback sidebar-feedback-error">会话加载失败。</div> : null}
+          {!conversationsQuery.isLoading && !conversationsQuery.isError ? (
+            <ConversationList conversations={conversationsQuery.data ?? []} emptyText="还没有研究会话。" />
           ) : null}
         </section>
       </aside>
 
-      <div className="workspace-main">
-        <main className="workspace-content">
-          <Outlet />
-        </main>
-      </div>
+      <main className="app-main">
+        <Outlet />
+      </main>
     </div>
   );
 }

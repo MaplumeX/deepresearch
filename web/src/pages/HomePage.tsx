@@ -1,44 +1,35 @@
 import { useNavigate } from "react-router-dom";
 
-import { RunForm } from "../components/RunForm";
-import { useCreateRunMutation } from "../hooks/useResearchRuns";
+import { ConversationComposer } from "../components/ConversationComposer";
+import { useCreateConversationMutation } from "../hooks/useConversations";
+
 
 export function HomePage() {
   const navigate = useNavigate();
-  const createRunMutation = useCreateRunMutation();
+  const createConversationMutation = useCreateConversationMutation();
 
   return (
-    <div className="workspace-page workspace-home">
-      <section className="home-stage">
-        <div className="home-stage-body">
-          <header className="workspace-heading home-heading">
-            <div>
-              <h1>开始新的研究</h1>
-              <p>输入问题并创建 run。系统会直接进入研究工作区，并通过 SSE 持续刷新执行状态。</p>
-            </div>
-          </header>
+    <section className="workspace-screen workspace-screen-home">
+      <div className="empty-thread">
+        <header className="screen-header">
+          <h1>开始新的研究</h1>
+          <p>提出问题，系统会创建一条新会话，并把后续研究过程和结果组织成连续线程。</p>
+        </header>
 
-          {createRunMutation.isError ? <div className="panel error-panel">创建 run 失败，请稍后重试。</div> : null}
+        {createConversationMutation.isError ? <div className="inline-error">创建会话失败，请稍后重试。</div> : null}
 
-          <RunForm
-            isSubmitting={createRunMutation.isPending}
-            onSubmit={(payload) =>
-              createRunMutation.mutate(payload, {
-                onSuccess: (run) => navigate(`/runs/${run.run_id}`),
-              })
-            }
-          />
-
-          <section className="panel home-notes">
-            <h2>当前工作流</h2>
-            <ul className="plain-list">
-              <li>创建成功后会自动跳转到该次研究的工作区。</li>
-              <li>实时活动和报告会在详情页持续更新。</li>
-              <li>历史记录始终保留在左侧边栏，方便快速切换。</li>
-            </ul>
-          </section>
-        </div>
-      </section>
-    </div>
+        <ConversationComposer
+          isSubmitting={createConversationMutation.isPending}
+          submitLabel="开始研究"
+          placeholder="例如：比较 LangGraph deep research agent 的执行模型、恢复策略和线程设计"
+          defaultSettingsOpen
+          onSubmit={(payload) =>
+            createConversationMutation.mutate(payload, {
+              onSuccess: ({ conversation }) => navigate(`/conversations/${conversation.conversation_id}`),
+            })
+          }
+        />
+      </div>
+    </section>
   );
 }

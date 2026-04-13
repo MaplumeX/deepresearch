@@ -2,7 +2,8 @@ import { Navigate, createBrowserRouter } from "react-router-dom";
 
 import { AppLayout } from "../components/AppLayout";
 import { HomePage } from "../pages/HomePage";
-import { RunDetailPage } from "../pages/RunDetailPage";
+import { ConversationPage } from "../pages/ConversationPage";
+import { RunRedirectPage } from "../pages/RunRedirectPage";
 import { RunsPage } from "../pages/RunsPage";
 
 export const router = createBrowserRouter([
@@ -15,12 +16,16 @@ export const router = createBrowserRouter([
         element: <HomePage />,
       },
       {
+        path: "conversations/:conversationId",
+        element: <ConversationPage />,
+      },
+      {
         path: "runs",
         element: <RunsPage />,
       },
       {
         path: "runs/:runId",
-        element: <RunDetailPage />,
+        element: <RunRedirectPage />,
       },
       {
         path: "*",

@@ -2,9 +2,17 @@ import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { createRunEventSource } from "../lib/api";
+import { upsertConversationMessage, upsertConversationRun, upsertConversationSummary } from "../lib/conversations";
 import { eventMessage, isTerminalStatus, upsertRunSummary } from "../lib/runs";
+import { conversationDetailQueryKey, conversationsQueryKey } from "./useConversations";
 import { runDetailQueryKey, runsQueryKey } from "./useResearchRuns";
-import type { ResearchRunEvent, ResearchRunSummary, RunStatus } from "../types/research";
+import type {
+  ResearchConversationDetail,
+  ResearchConversationSummary,
+  ResearchRunEvent,
+  ResearchRunSummary,
+  RunStatus,
+} from "../types/research";
 
 interface EventLogEntry {
   id: string;
@@ -41,6 +49,26 @@ export function useRunEvents({ runId, status }: UseRunEventsOptions) {
         queryClient.setQueryData(runDetailQueryKey(runId), run);
         queryClient.setQueryData<ResearchRunSummary[] | undefined>(runsQueryKey, (current) =>
           upsertRunSummary(current, run),
+        );
+        queryClient.setQueryData<ResearchConversationDetail | undefined>(
+          conversationDetailQueryKey(run.conversation_id),
+          (current) => {
+            if (!current) {
+              return current;
+            }
+            let next = upsertConversationRun(current, run);
+            if (event.data.assistant_message) {
+              next = upsertConversationMessage(next, event.data.assistant_message);
+            }
+            return next;
+          },
+        );
+      }
+
+      if (event.data.conversation) {
+        const nextConversation = event.data.conversation;
+        queryClient.setQueryData<ResearchConversationSummary[] | undefined>(conversationsQueryKey, (current) =>
+          upsertConversationSummary(current, nextConversation),
         );
       }
 

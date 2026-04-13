@@ -39,7 +39,7 @@ class ResearchRunManagerTest(unittest.IsolatedAsyncioTestCase):
         await self.manager.shutdown()
         self.temp_dir.cleanup()
 
-    async def test_create_run_completes_in_background(self) -> None:
+    async def test_create_run_completes_in_background_and_populates_conversation(self) -> None:
         async def fake_run_research(_: dict, __: str) -> dict:
             return {
                 "final_report": "# Final",
@@ -56,9 +56,44 @@ class ResearchRunManagerTest(unittest.IsolatedAsyncioTestCase):
             await self._drain_background_tasks()
 
         stored = self.manager.get_run(created.run_id)
+        conversation = self.manager.get_conversation(created.conversation_id)
         self.assertEqual(created.status, "queued")
         self.assertEqual(stored.status, "completed")
         self.assertEqual(stored.result["final_report"], "# Final")
+        self.assertEqual(len(conversation.messages), 2)
+        self.assertEqual(conversation.messages[-1].content, "# Final")
+
+    async def test_create_message_adds_follow_up_turn_in_same_conversation(self) -> None:
+        async def fake_run_research(request_payload: dict, _: str) -> dict:
+            return {
+                "final_report": f"# {request_payload['question']}",
+                "warnings": [],
+            }
+
+        with patch("app.run_manager.run_research", side_effect=fake_run_research):
+            conversation, first_run = await self.manager.create_conversation(
+                {
+                    "question": "Question",
+                    "output_language": "zh-CN",
+                }
+            )
+            await self._drain_background_tasks()
+
+            next_conversation, second_run = await self.manager.create_message(
+                conversation.conversation_id,
+                {
+                    "question": "Follow-up",
+                    "output_language": "zh-CN",
+                },
+            )
+            await self._drain_background_tasks()
+
+        refreshed = self.manager.get_conversation(conversation.conversation_id)
+        self.assertEqual(next_conversation.conversation_id, conversation.conversation_id)
+        self.assertEqual(second_run.parent_run_id, first_run.run_id)
+        self.assertEqual(len(refreshed.runs), 2)
+        self.assertEqual(len(refreshed.messages), 4)
+        self.assertEqual(refreshed.messages[-1].content, "# Follow-up")
 
     async def test_resume_run_requires_interrupted_status(self) -> None:
         async def fake_run_research(_: dict, __: str) -> dict:
@@ -97,11 +132,43 @@ class ResearchRunManagerTest(unittest.IsolatedAsyncioTestCase):
 
             await self._drain_background_tasks()
             completed = self.manager.get_run(created.run_id)
+            conversation = self.manager.get_conversation(created.conversation_id)
             self.assertEqual(completed.status, "completed")
             self.assertEqual(completed.result["final_report"], "# Revised")
+            self.assertEqual(conversation.messages[-1].content, "# Revised")
 
         with self.assertRaises(InvalidRunStateError):
             await self.manager.resume_run(created.run_id, {"approved": True})
+
+    async def test_create_message_rejects_active_parent_run(self) -> None:
+        blocker = asyncio.Event()
+
+        async def blocking_run_research(_: dict, __: str) -> dict:
+            await blocker.wait()
+            return {
+                "final_report": "# Final",
+                "warnings": [],
+            }
+
+        with patch("app.run_manager.run_research", side_effect=blocking_run_research):
+            conversation, _ = await self.manager.create_conversation(
+                {
+                    "question": "Question",
+                    "output_language": "zh-CN",
+                }
+            )
+
+            with self.assertRaises(InvalidRunStateError):
+                await self.manager.create_message(
+                    conversation.conversation_id,
+                    {
+                        "question": "Follow-up",
+                        "output_language": "zh-CN",
+                    },
+                )
+
+            blocker.set()
+            await self._drain_background_tasks()
 
     async def _drain_background_tasks(self) -> None:
         while self.manager._active_tasks:
