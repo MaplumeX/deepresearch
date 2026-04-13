@@ -91,6 +91,34 @@ RunEventType = Literal[
 ]
 
 
+class MemoryFact(BaseModel):
+    fact: str
+    source_ids: list[str] = Field(default_factory=list)
+
+
+class RecentTurnMemory(BaseModel):
+    run_id: str
+    question: str
+    answer_digest: str
+    status: RunStatus
+    created_at: str
+
+
+class ConversationMemoryPayload(BaseModel):
+    rolling_summary: str = ""
+    recent_turns: list[RecentTurnMemory] = Field(default_factory=list)
+    key_facts: list[MemoryFact] = Field(default_factory=list)
+    open_questions: list[str] = Field(default_factory=list)
+
+
+class PersistedConversationMemory(BaseModel):
+    conversation_id: str
+    rolling_summary: str = ""
+    key_facts: list[MemoryFact] = Field(default_factory=list)
+    open_questions: list[str] = Field(default_factory=list)
+    updated_at: str
+
+
 class ResearchRunSummary(BaseModel):
     run_id: str
     conversation_id: str

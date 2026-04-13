@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from typing import Any
 
 from app.config import Settings
 from app.domain.models import ReportDraft
+from app.services.conversation_memory import format_memory_for_prompt
 from app.services.llm import build_chat_model, can_use_llm
 
 
-def _fallback_markdown(question: str, tasks: list[dict], findings: list[dict], sources: dict[str, dict]) -> ReportDraft:
+def _fallback_markdown(
+    question: str,
+    tasks: list[dict],
+    findings: list[dict],
+    sources: dict[str, dict],
+    memory: dict[str, Any] | None,
+) -> ReportDraft:
     grouped: dict[str, list[dict]] = defaultdict(list)
     titles = {task["task_id"]: task["title"] for task in tasks}
     for finding in findings:
@@ -34,14 +42,18 @@ def _fallback_markdown(question: str, tasks: list[dict], findings: list[dict], s
         for source_id, source in sorted(sources.items())
     ] or ["- No sources available."]
 
-    markdown = "\n\n".join(
+    sections = [f"# Research Report\n\nQuestion: {question}"]
+    memory_section = _build_memory_section(memory)
+    if memory_section:
+        sections.append(memory_section)
+    sections.extend(
         [
-            f"# Research Report\n\nQuestion: {question}",
             "## Executive Summary\n" + "\n".join(summary_lines),
             *body_sections,
             "## Sources\n" + "\n".join(source_lines),
         ]
     )
+    markdown = "\n\n".join(sections)
     return ReportDraft(
         title="Research Report",
         summary="\n".join(summary_lines),
@@ -56,6 +68,7 @@ def _maybe_synthesize_with_llm(
     findings: list[dict],
     sources: dict[str, dict],
     settings: Settings,
+    memory: dict[str, Any] | None,
 ) -> ReportDraft | None:
     if not settings.enable_llm_synthesis or not can_use_llm(settings) or not findings:
         return None
@@ -67,16 +80,24 @@ def _maybe_synthesize_with_llm(
         return None
 
     parser = PydanticOutputParser(pydantic_object=ReportDraft)
+    memory_sections = format_memory_for_prompt(memory)
     prompt = ChatPromptTemplate.from_messages(
         [
             (
                 "system",
                 "You synthesize cited markdown reports from validated evidence. "
+                "Conversation memory is background context only. "
+                "Never use conversation memory as a citation source. "
                 "Keep all citations in the form [source_id].",
             ),
             (
                 "human",
-                "Question:\n{question}\n\nTasks:\n{tasks}\n\nFindings:\n{findings}\n\nSources:\n{sources}\n\n"
+                "Current question:\n{question}\n\n"
+                "Rolling summary:\n{rolling_summary}\n\n"
+                "Recent 5 turns:\n{recent_turns}\n\n"
+                "Known facts from older turns:\n{key_facts}\n\n"
+                "Open questions from older turns:\n{open_questions}\n\n"
+                "Current tasks:\n{tasks}\n\nFindings:\n{findings}\n\nSources:\n{sources}\n\n"
                 "{format_instructions}",
             ),
         ]
@@ -89,6 +110,10 @@ def _maybe_synthesize_with_llm(
     return chain.invoke(
         {
             "question": question,
+            "rolling_summary": memory_sections["rolling_summary"],
+            "recent_turns": memory_sections["recent_turns"],
+            "key_facts": memory_sections["key_facts"],
+            "open_questions": memory_sections["open_questions"],
             "tasks": tasks,
             "findings": findings,
             "sources": sources,
@@ -103,8 +128,25 @@ def synthesize_report(
     findings: list[dict],
     sources: dict[str, dict],
     settings: Settings,
+    memory: dict[str, Any] | None = None,
 ) -> ReportDraft:
-    drafted = _maybe_synthesize_with_llm(question, tasks, findings, sources, settings)
+    drafted = _maybe_synthesize_with_llm(question, tasks, findings, sources, settings, memory)
     if drafted:
         return drafted
-    return _fallback_markdown(question, tasks, findings, sources)
+    return _fallback_markdown(question, tasks, findings, sources, memory)
+
+
+def _build_memory_section(memory: dict[str, Any] | None) -> str:
+    memory_sections = format_memory_for_prompt(memory)
+    if all(value == "None" for value in memory_sections.values()):
+        return ""
+    return "\n".join(
+        [
+            "## Conversation Context",
+            "_Background only. Not a citation source._",
+            f"Earlier context:\n{memory_sections['rolling_summary']}",
+            f"Recent 5 turns:\n{memory_sections['recent_turns']}",
+            f"Older key facts:\n{memory_sections['key_facts']}",
+            f"Open questions:\n{memory_sections['open_questions']}",
+        ]
+    )

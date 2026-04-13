@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.config import get_settings
-from app.domain.models import ResearchRequest
+from app.domain.models import ConversationMemoryPayload, ResearchRequest
 from app.services.budgets import normalize_request_payload
 
 
@@ -9,8 +9,10 @@ def ingest_request(state: dict) -> dict:
     settings = get_settings()
     request_payload = normalize_request_payload(state.get("request", {}), settings)
     request = ResearchRequest.model_validate(request_payload)
+    memory = ConversationMemoryPayload.model_validate(state.get("memory", {}))
     return {
         "request": request.model_dump(),
+        "memory": memory.model_dump(),
         "tasks": state.get("tasks", []),
         "raw_findings": state.get("raw_findings", []),
         "raw_source_batches": state.get("raw_source_batches", []),
@@ -23,4 +25,3 @@ def ingest_request(state: dict) -> dict:
         "iteration_count": state.get("iteration_count", 0),
         "review_required": state.get("review_required", False),
     }
-

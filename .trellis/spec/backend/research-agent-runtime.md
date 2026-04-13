@@ -30,7 +30,11 @@ GET /health
 #### Runtime
 
 ```python
-async def run_research(request_payload: dict[str, Any], run_id: str) -> dict[str, Any]
+async def run_research(
+    request_payload: dict[str, Any],
+    run_id: str,
+    memory: dict[str, Any] | None = None,
+) -> dict[str, Any]
 async def resume_research(run_id: str, resume_payload: dict[str, Any]) -> dict[str, Any]
 class ResearchRunManager:
     async def create_run(request_payload: dict[str, Any]) -> ResearchRunDetail
@@ -161,6 +165,30 @@ def emit_results_node(state: dict) -> dict
 }
 ```
 
+#### Conversation Memory Contract
+
+```json
+{
+  "rolling_summary": "string, compressed background context for turns older than the recent 5-run window",
+  "recent_turns": [
+    {
+      "run_id": "string",
+      "question": "string",
+      "answer_digest": "string",
+      "status": "queued | running | interrupted | completed | failed",
+      "created_at": "ISO-8601 timestamp"
+    }
+  ],
+  "key_facts": [
+    {
+      "fact": "string",
+      "source_ids": "list[str]"
+    }
+  ],
+  "open_questions": "list[str]"
+}
+```
+
 #### SSE Event Contract
 
 ```json
@@ -213,6 +241,14 @@ research_runs(
   updated_at,
   completed_at nullable
 )
+
+conversation_memory(
+  conversation_id PK,
+  rolling_summary,
+  key_facts_json,
+  open_questions_json,
+  updated_at
+)
 ```
 
 #### Graph State Contract
@@ -220,6 +256,7 @@ research_runs(
 ```json
 {
   "request": "normalized request payload",
+  "memory": "conversation short-term memory payload with recent 5 runs plus persisted older summary",
   "tasks": "list of research tasks",
   "raw_findings": "append-only list of worker evidence",
   "raw_source_batches": "append-only list of worker source maps",
@@ -288,15 +325,17 @@ REQUIRE_HUMAN_REVIEW     optional bool, defaults to false
 | API -> ingest_request | `question`, limits, language | `ResearchRequest` validates non-empty question and bounded limits | Raise validation error before graph execution |
 | create conversation API -> run store | validated conversation turn payload | create conversation, user message, assistant placeholder, and queued run in the same persistence boundary | return 500 if storage fails before launch |
 | follow-up message API -> manager | `conversation_id`, optional `parent_run_id` | conversation must exist; explicit `parent_run_id` must belong to the same conversation; implicit parent defaults to latest run | return 404 for missing conversation; return 409 when source run is still active or belongs to another conversation |
+| follow-up manager -> memory builder | conversation detail, optional persisted conversation memory | build memory from the recent 5 runs; if the requested parent run falls outside the latest 5, force it into the window and recompute older summary on the fly | fall back to deterministic summary rebuild instead of dropping memory context |
 | run store -> detail/list API | `run_id` or conversation/list query | run must exist for detail/event routes; conversation must exist for conversation routes | return 404 when target run or conversation is missing |
-| ingest_request -> graph state | request payload | Normalize integer budgets before Pydantic validation | Invalid values are clamped first, then validated |
-| planner -> tasks | question + gaps | Limit task count to `max_parallel_tasks` | Fall back to deterministic task plan if the OpenAI-compatible model path is unavailable |
+| ingest_request -> graph state | request payload + memory payload | Normalize integer budgets before Pydantic validation and normalize memory shape into explicit `rolling_summary/recent_turns/key_facts/open_questions` keys | Invalid request values are clamped first, then validated; missing memory fields become empty defaults |
+| planner -> tasks | question + gaps + memory | Limit task count to `max_parallel_tasks`; use memory only as continuity context, never as evidence | Fall back to deterministic task plan with contextual question text if the OpenAI-compatible model path is unavailable |
 | task -> worker query rewrite | task question + request scope | Build at most 3 deduplicated queries for a single task | Fall back to deterministic query set without LLM |
 | search -> acquire content | provider search hits | Merge duplicate URLs, keep provider metadata, require non-empty URL | Skip invalid hits and tolerate per-provider search failures |
 | acquire content -> extract | provider raw content / fetched HTML / snippet fallback | Try provider raw content first, then HTTP fetch, then snippet fallback | Skip unusable content and continue with any surviving acquisition path |
 | extract -> evidence scoring | normalized source documents | Drop short or weak pages, choose a focused snippet, and compute bounded `relevance_score` / `confidence` | Skip sources that do not meet the deterministic relevance floor |
-| synthesize -> audit | markdown report | Require citations to map to existing `sources` | Set warning and require review when unknown citation ids exist |
+| synthesize -> audit | markdown report + memory | Require citations to map to existing `sources`; memory may appear only in a background section and may not introduce citations | Set warning and require review when unknown citation ids exist |
 | run persistence -> conversation thread | run lifecycle updates | assistant message content mirrors final report, draft report, or failure text for the linked run | keep assistant placeholder empty while queued/running; update assistant message content on interrupt/completion/failure |
+| terminal run -> conversation memory store | conversation detail after completion/interruption/failure | persist summary/facts/questions for turns outside the recent 5-run window | write empty memory payload when the conversation has 5 or fewer runs instead of skipping the row |
 | review -> finalize | resume payload | Optional `edited_report` override only | Keep draft report when no edited report is supplied |
 | resume API -> runtime | `approved`, optional `edited_report` | run must be in `interrupted` status before resume | return 409 if client resumes a non-interrupted run |
 | runtime -> checkpoint saver | `CHECKPOINT_DB_PATH` and runtime sqlite dependency set | runtime adapter must patch `aiosqlite.Connection.is_alive()` when the installed `aiosqlite` version no longer exposes it but `langgraph-checkpoint-sqlite` still probes it | fail the run with a surfaced runtime error if checkpoint initialization still cannot complete after compatibility patching |
@@ -310,6 +349,8 @@ REQUIRE_HUMAN_REVIEW     optional bool, defaults to false
 - Create API returns queued run immediately.
 - Creating a conversation also persists the first user message and assistant placeholder before the background run starts.
 - Follow-up turns create a new run inside the same conversation and link the new user message to the previous assistant message.
+- Follow-up turns inject memory with the recent 5 runs and persisted summary of older runs.
+- If `parent_run_id` points to an older run outside the latest 5, that run is forced into the memory window.
 - Query rewrite produces focused task queries.
 - Tavily and Brave can both contribute hits for the same worker task.
 - Provider raw content is used when available; HTTP fetch and snippet fallback cover the rest.
@@ -320,18 +361,20 @@ REQUIRE_HUMAN_REVIEW     optional bool, defaults to false
 
 #### Base
 - No OpenAI-compatible credentials are configured.
-- Planner and synthesizer fall back to deterministic logic.
+- Planner and synthesizer fall back to deterministic logic while still receiving conversation memory.
 - Worker query rewrite, ranking, filtering, and scoring still run deterministically without model access.
 - One search provider may be unavailable and the graph still completes from the surviving provider or with an empty-evidence report.
 - Installed `aiosqlite` may omit `Connection.is_alive()` while checkpoint persistence still succeeds through the runtime compatibility shim.
 - Legacy runs that predate conversation support are backfilled to synthetic one-run conversations on initialization.
 - Browser refreshes during a running job and the frontend restores state via detail API before reopening SSE.
+- Conversations with 5 or fewer runs persist an empty `rolling_summary` while still providing explicit recent turns.
 
 #### Bad
 - Empty `question`.
 - `max_iterations` or `max_parallel_tasks` outside the accepted range after normalization.
 - Follow-up payload references a run from another conversation.
 - Follow-up payload is sent while the latest source run is still `queued` or `running`.
+- Planner or synthesizer treats conversation memory as a citation source.
 - Report cites a source id that is not present in `sources`.
 - Both providers fail or return unusable hits for all queries.
 - Provider raw content, HTTP fetch, and snippet fallback all fail or stay too weak for evidence extraction.
@@ -346,8 +389,11 @@ REQUIRE_HUMAN_REVIEW     optional bool, defaults to false
 - Unit test `app/tools/extract.py` for provider-aware content normalization.
 - Unit test `app/graph/nodes/gap_check.py` for missing-task and corroboration gaps.
 - Unit test deterministic planning fallback when model credentials are absent.
+- Unit test `app/services/conversation_memory.py` for recent-5 windowing, parent-run inclusion, digest building, and persisted older-summary generation.
 - Unit test `app/run_store.py` for persisted conversation threading, assistant message synchronization, and legacy linkage backfill.
-- Unit test `app/run_manager.py` for async lifecycle transitions, follow-up turn creation, and resume rules.
+- Unit test `app/run_store.py` for `conversation_memory` read/write behavior.
+- Unit test `app/run_manager.py` for async lifecycle transitions, follow-up turn creation, memory injection, and resume rules.
+- Unit test deterministic synthesis fallback with conversation memory present and no extra citations.
 - Unit test `app/runtime.py` for sqlite checkpoint compatibility when `aiosqlite.Connection.is_alive()` is absent.
 - Syntax compilation for `app/` and `tests/`.
 
@@ -365,7 +411,7 @@ async def create_message(conversation_id: str, request_payload: dict) -> tuple[R
 
 - Problem: product-level conversation state is faked by mutating or overloading a single run identity, so follow-up turns cannot be validated or rendered as a stable thread.
 
-#### Correct
+#### Correct: Stable Conversation Threading
 
 ```python
 async def create_message(
@@ -386,3 +432,31 @@ async def create_message(
 ```
 
 - Reason: conversation identity stays stable, each user turn gets a fresh run/checkpoint lifecycle, and the frontend can render a real thread without overloading a single run as both conversation and execution state.
+
+#### Correct: Stable Conversation Threading With Memory Injection
+
+```python
+async def create_message(
+    conversation_id: str,
+    request_payload: dict,
+) -> tuple[ResearchConversationDetail, ResearchRunDetail]:
+    conversation = manager.get_conversation(conversation_id)
+    persisted_memory = store.get_conversation_memory(conversation_id)
+    parent_run_id = manager._resolve_parent_run_id(conversation, request_payload.get("parent_run_id"))
+    memory = build_memory_context(
+        conversation,
+        persisted_memory,
+        window_size=5,
+        parent_run_id=parent_run_id,
+    )
+    conversation, run = manager._create_turn(
+        conversation_id=conversation_id,
+        request_payload=request_payload,
+        title=None,
+        parent_run_id=parent_run_id,
+        memory_context=memory.model_dump(),
+    )
+    return conversation, run
+```
+
+- Reason: follow-up execution keeps stable thread identity and injects explicit short-term memory into the new run without changing public API payloads.

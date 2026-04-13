@@ -9,12 +9,17 @@ from langgraph.types import Command
 from pydantic import BaseModel
 
 from app.config import get_settings
+from app.domain.models import ConversationMemoryPayload
 from app.graph.builder import build_graph
 
 
-def build_initial_state(request_payload: dict[str, Any]) -> dict[str, Any]:
+def build_initial_state(
+    request_payload: dict[str, Any],
+    memory: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     return {
         "request": request_payload,
+        "memory": ConversationMemoryPayload.model_validate(memory or {}).model_dump(),
         "tasks": [],
         "raw_findings": [],
         "raw_source_batches": [],
@@ -29,13 +34,17 @@ def build_initial_state(request_payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-async def run_research(request_payload: dict[str, Any], run_id: str) -> dict[str, Any]:
+async def run_research(
+    request_payload: dict[str, Any],
+    run_id: str,
+    memory: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     settings = get_settings()
     config = {"configurable": {"thread_id": run_id}}
     async with _open_checkpointer(settings.checkpoint_db_path) as checkpointer:
         graph = build_graph(checkpointer=checkpointer)
         result = await graph.ainvoke(
-            build_initial_state(request_payload),
+            build_initial_state(request_payload, memory),
             config=config,
         )
         return await _read_graph_snapshot(graph, config, result)

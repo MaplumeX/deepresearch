@@ -6,6 +6,7 @@ from typing import Annotated, TypedDict
 
 class GraphState(TypedDict, total=False):
     request: dict
+    memory: dict
     tasks: list[dict]
     raw_findings: Annotated[list[dict], operator.add]
     raw_source_batches: Annotated[list[dict], operator.add]
@@ -17,4 +18,3 @@ class GraphState(TypedDict, total=False):
     final_report: str
     iteration_count: int
     review_required: bool
-

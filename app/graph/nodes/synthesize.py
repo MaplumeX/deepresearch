@@ -11,8 +11,8 @@ def synthesize_report_node(state: dict) -> dict:
         findings=state.get("findings", []),
         sources=state.get("sources", {}),
         settings=get_settings(),
+        memory=state.get("memory"),
     )
     return {
         "draft_report": report.markdown,
     }
-

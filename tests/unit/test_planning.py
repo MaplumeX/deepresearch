@@ -52,6 +52,29 @@ class PlanningServiceTest(unittest.TestCase):
         )
         self.assertEqual(tasks[0].title, "Resolve gap: Need primary sources")
 
+    def test_fallback_planner_includes_memory_context_in_task_question(self) -> None:
+        tasks = plan_research_tasks(
+            question="Can you continue this?",
+            gaps=[],
+            max_tasks=1,
+            settings=self.settings,
+            memory={
+                "rolling_summary": "Earlier research compared LangGraph and LangChain roles.",
+                "recent_turns": [
+                    {
+                        "run_id": "run-1",
+                        "question": "How does the graph work?",
+                        "answer_digest": "It plans, runs workers, merges evidence, and synthesizes a report.",
+                        "status": "completed",
+                        "created_at": "2026-04-13T00:00:00+00:00",
+                    }
+                ],
+                "key_facts": [],
+                "open_questions": [],
+            },
+        )
+        self.assertIn("Conversation context:", tasks[0].question)
+
 
 if __name__ == "__main__":
     unittest.main()

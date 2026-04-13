@@ -13,9 +13,9 @@ def plan_research(state: dict) -> dict:
         gaps=state.get("gaps", []),
         max_tasks=request.max_parallel_tasks,
         settings=settings,
+        memory=state.get("memory"),
     )
     return {
         "tasks": [task.model_dump() for task in tasks],
         "iteration_count": state.get("iteration_count", 0) + 1,
     }
-

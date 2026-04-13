@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from app.domain.models import MemoryFact, PersistedConversationMemory
 from app.run_store import ResearchRunStore
 
 
@@ -100,6 +101,24 @@ class ResearchRunStoreTest(unittest.TestCase):
         self.assertEqual(updated.result["draft_report"], "# Draft")
         self.assertIsNotNone(assistant_message)
         self.assertEqual(assistant_message.content, "# Draft")
+
+    def test_upsert_and_get_conversation_memory(self) -> None:
+        self.store.upsert_conversation_memory(
+            PersistedConversationMemory(
+                conversation_id="conversation-1",
+                rolling_summary="- Q: Earlier question | A: Earlier answer",
+                key_facts=[MemoryFact(fact="Fact 1", source_ids=["source-1"])],
+                open_questions=["Need more corroboration"],
+                updated_at="2026-04-13T00:00:00+00:00",
+            )
+        )
+
+        stored = self.store.get_conversation_memory("conversation-1")
+
+        self.assertIsNotNone(stored)
+        self.assertEqual(stored.rolling_summary, "- Q: Earlier question | A: Earlier answer")
+        self.assertEqual(stored.key_facts[0].fact, "Fact 1")
+        self.assertEqual(stored.open_questions, ["Need more corroboration"])
 
 
 if __name__ == "__main__":

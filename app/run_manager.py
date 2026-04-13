@@ -18,6 +18,12 @@ from app.domain.models import (
 )
 from app.run_store import ResearchRunStore, build_conversation_title
 from app.runtime import resume_research, run_research
+from app.services.conversation_memory import (
+    DEFAULT_MEMORY_WINDOW,
+    build_memory_context,
+    empty_memory_payload,
+    rebuild_persisted_memory,
+)
 
 
 TERMINAL_RUN_STATUSES = {"completed", "failed"}
@@ -94,14 +100,22 @@ class ResearchRunManager:
         request_payload: dict,
     ) -> tuple[ResearchConversationDetail, ResearchRunDetail]:
         conversation = self.get_conversation(conversation_id)
+        persisted_memory = self._store.get_conversation_memory(conversation_id)
         payload = dict(request_payload)
         parent_run_id = payload.pop("parent_run_id", None)
         resolved_parent_run_id = self._resolve_parent_run_id(conversation, parent_run_id)
+        memory_context = build_memory_context(
+            conversation,
+            persisted_memory,
+            window_size=DEFAULT_MEMORY_WINDOW,
+            parent_run_id=resolved_parent_run_id,
+        )
         return self._create_turn(
             conversation_id=conversation_id,
             request_payload=payload,
             title=None,
             parent_run_id=resolved_parent_run_id,
+            memory_context=memory_context.model_dump(),
         )
 
     def list_runs(self) -> list[ResearchRunSummary]:
@@ -167,6 +181,7 @@ class ResearchRunManager:
             request_payload=request_payload,
             title=title,
             parent_run_id=None,
+            memory_context=empty_memory_payload().model_dump(),
         )
 
     def _create_turn(
@@ -176,6 +191,7 @@ class ResearchRunManager:
         request_payload: dict,
         title: str | None,
         parent_run_id: str | None,
+        memory_context: dict | None,
     ) -> tuple[ResearchConversationDetail, ResearchRunDetail]:
         run_id = uuid4().hex
         origin_message_id = uuid4().hex
@@ -190,7 +206,7 @@ class ResearchRunManager:
             parent_run_id=parent_run_id,
         )
         self._publish("run.created", run, {})
-        self._start_background_task(run_id, self._execute_run(run_id, request_payload))
+        self._start_background_task(run_id, self._execute_run(run_id, request_payload, memory_context))
         return conversation, run
 
     def _resolve_parent_run_id(
@@ -224,11 +240,16 @@ class ResearchRunManager:
 
         task.add_done_callback(_cleanup)
 
-    async def _execute_run(self, run_id: str, request_payload: dict) -> None:
+    async def _execute_run(
+        self,
+        run_id: str,
+        request_payload: dict,
+        memory_context: dict | None,
+    ) -> None:
         running_run = self._store.set_status(run_id, "running")
         self._publish("run.status_changed", running_run, {})
         self._publish("run.progress", running_run, {"message": "Research execution started."})
-        await self._finish_execution(run_id, run_research(request_payload, run_id))
+        await self._finish_execution(run_id, run_research(request_payload, run_id, memory_context))
 
     async def _execute_resume(self, run_id: str, resume_payload: dict) -> None:
         running_run = self._store.set_status(run_id, "running")
@@ -240,17 +261,27 @@ class ResearchRunManager:
             result = await execution
         except asyncio.CancelledError:
             failed_run = self._store.mark_failed(run_id, "Run was cancelled during shutdown.")
+            self._refresh_conversation_memory(failed_run.conversation_id)
             self._publish("run.failed", failed_run, {})
             raise
         except Exception as exc:
             failed_run = self._store.mark_failed(run_id, str(exc))
+            self._refresh_conversation_memory(failed_run.conversation_id)
             self._publish("run.failed", failed_run, {})
             return
 
         status: RunStatus = "interrupted" if "__interrupt__" in result else "completed"
         updated_run = self._store.store_result(run_id, status, result)
+        self._refresh_conversation_memory(updated_run.conversation_id)
         event_type = "run.interrupted" if status == "interrupted" else "run.completed"
         self._publish(event_type, updated_run, {})
+
+    def _refresh_conversation_memory(self, conversation_id: str) -> None:
+        conversation = self._store.get_conversation(conversation_id)
+        if conversation is None:
+            return
+        memory = rebuild_persisted_memory(conversation, window_size=DEFAULT_MEMORY_WINDOW)
+        self._store.upsert_conversation_memory(memory)
 
     def _publish(self, event_type: RunEventType, run: ResearchRunDetail, data: dict) -> None:
         self._broker.publish(self._build_event(event_type, run, data))

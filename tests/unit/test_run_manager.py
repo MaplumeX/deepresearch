@@ -40,7 +40,7 @@ class ResearchRunManagerTest(unittest.IsolatedAsyncioTestCase):
         self.temp_dir.cleanup()
 
     async def test_create_run_completes_in_background_and_populates_conversation(self) -> None:
-        async def fake_run_research(_: dict, __: str) -> dict:
+        async def fake_run_research(_: dict, __: str, ___: dict | None) -> dict:
             return {
                 "final_report": "# Final",
                 "warnings": [],
@@ -64,7 +64,10 @@ class ResearchRunManagerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(conversation.messages[-1].content, "# Final")
 
     async def test_create_message_adds_follow_up_turn_in_same_conversation(self) -> None:
-        async def fake_run_research(request_payload: dict, _: str) -> dict:
+        captured_memories: list[dict | None] = []
+
+        async def fake_run_research(request_payload: dict, _: str, memory: dict | None) -> dict:
+            captured_memories.append(memory)
             return {
                 "final_report": f"# {request_payload['question']}",
                 "warnings": [],
@@ -94,9 +97,12 @@ class ResearchRunManagerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(refreshed.runs), 2)
         self.assertEqual(len(refreshed.messages), 4)
         self.assertEqual(refreshed.messages[-1].content, "# Follow-up")
+        self.assertEqual(captured_memories[0]["recent_turns"], [])
+        self.assertEqual(len(captured_memories[1]["recent_turns"]), 1)
+        self.assertEqual(captured_memories[1]["recent_turns"][0]["question"], "Question")
 
     async def test_resume_run_requires_interrupted_status(self) -> None:
-        async def fake_run_research(_: dict, __: str) -> dict:
+        async def fake_run_research(_: dict, __: str, ___: dict | None) -> dict:
             return {
                 "draft_report": "# Draft",
                 "warnings": ["Need review"],
@@ -143,7 +149,7 @@ class ResearchRunManagerTest(unittest.IsolatedAsyncioTestCase):
     async def test_create_message_rejects_active_parent_run(self) -> None:
         blocker = asyncio.Event()
 
-        async def blocking_run_research(_: dict, __: str) -> dict:
+        async def blocking_run_research(_: dict, __: str, ___: dict | None) -> dict:
             await blocker.wait()
             return {
                 "final_report": "# Final",

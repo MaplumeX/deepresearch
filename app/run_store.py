@@ -7,6 +7,7 @@ from pathlib import Path
 
 from app.domain.models import (
     ConversationMessage,
+    PersistedConversationMemory,
     ResearchConversationDetail,
     ResearchConversationSummary,
     ResearchRequest,
@@ -77,6 +78,17 @@ class ResearchRunStore:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     completed_at TEXT
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS conversation_memory (
+                    conversation_id TEXT PRIMARY KEY,
+                    rolling_summary TEXT NOT NULL,
+                    key_facts_json TEXT NOT NULL,
+                    open_questions_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
                 )
                 """
             )
@@ -358,6 +370,58 @@ class ResearchRunStore:
                 """
             ).fetchall()
         return [self._build_conversation_summary(row["conversation_id"]) for row in rows]
+
+    def get_conversation_memory(self, conversation_id: str) -> PersistedConversationMemory | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    conversation_id,
+                    rolling_summary,
+                    key_facts_json,
+                    open_questions_json,
+                    updated_at
+                FROM conversation_memory
+                WHERE conversation_id = ?
+                """,
+                (conversation_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return PersistedConversationMemory(
+            conversation_id=row["conversation_id"],
+            rolling_summary=row["rolling_summary"],
+            key_facts=json.loads(row["key_facts_json"]),
+            open_questions=json.loads(row["open_questions_json"]),
+            updated_at=row["updated_at"],
+        )
+
+    def upsert_conversation_memory(self, memory: PersistedConversationMemory) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO conversation_memory (
+                    conversation_id,
+                    rolling_summary,
+                    key_facts_json,
+                    open_questions_json,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(conversation_id) DO UPDATE SET
+                    rolling_summary = excluded.rolling_summary,
+                    key_facts_json = excluded.key_facts_json,
+                    open_questions_json = excluded.open_questions_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    memory.conversation_id,
+                    memory.rolling_summary,
+                    json.dumps([fact.model_dump() for fact in memory.key_facts], ensure_ascii=True, sort_keys=True),
+                    json.dumps(memory.open_questions, ensure_ascii=True, sort_keys=True),
+                    memory.updated_at,
+                ),
+            )
+            connection.commit()
 
     def get_message(self, message_id: str) -> ConversationMessage | None:
         with self._connect() as connection:

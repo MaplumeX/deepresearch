@@ -74,6 +74,7 @@ flowchart TD
 | 字段 | 类型 | 作用 |
 |------|------|------|
 | `request` | `dict` | 标准化后的研究请求 |
+| `memory` | `dict` | 会话短期记忆，包含最近 5 轮问答和更早历史摘要 |
 | `tasks` | `list[dict]` | 当前轮待执行的研究任务 |
 | `raw_findings` | `list[dict]` | worker 原始证据，使用 `operator.add` 聚合 |
 | `raw_source_batches` | `list[dict]` | worker 原始来源批次，使用 `operator.add` 聚合 |
@@ -89,6 +90,12 @@ flowchart TD
 ### 3.1 初始化状态
 
 `app/runtime.py` 中的 `build_initial_state()` 会在首次运行时把上述字段全部初始化。这样图内节点基本可以假定字段存在，不必处理大量缺省分支。
+
+其中 `memory` 的职责与其他字段不同：
+
+- 它不是本轮 research 的证据
+- 它是 follow-up run 的背景上下文
+- 当前实现把最近 5 个 run 作为显式窗口，把更早内容压成 `rolling_summary`
 
 ### 3.2 聚合语义
 
@@ -345,7 +352,7 @@ flowchart TD
 `POST /api/research/runs`
 -> `ResearchRunManager.create_run()`
 -> 后台任务 `_execute_run()`
--> `run_research(request_payload, run_id)`
+-> `run_research(request_payload, run_id, memory={...empty...})`
 -> `build_graph(checkpointer=AsyncSqliteSaver(...))`
 -> `graph.ainvoke(initial_state, config={"configurable": {"thread_id": run_id}})`
 
@@ -353,6 +360,27 @@ flowchart TD
 
 - 业务运行 ID
 - LangGraph checkpoint 的 `thread_id`
+
+首轮 run 的 `memory` 是空结构，因为此时 conversation 里还没有历史 turn。
+
+### 6.1.1 follow-up 运行
+
+入口链路：
+
+`POST /api/research/conversations/{conversation_id}/messages`
+-> `ResearchRunManager.create_message()`
+-> 读取 `conversation` 与 `conversation_memory`
+-> `build_memory_context(conversation, persisted_memory, window_size=5, parent_run_id=...)`
+-> 后台任务 `_execute_run()`
+-> `run_research(request_payload, run_id, memory)`
+-> `graph.ainvoke(initial_state, config={"configurable": {"thread_id": run_id}})`
+
+说明：
+
+- 最近 5 个 run 会作为显式 `recent_turns`
+- 更早历史会压缩进 `rolling_summary`
+- `parent_run_id` 若不在最新 5 轮中，会被强制塞回窗口
+- 这套 memory 只服务于新 run 的上下文连续性，不改变 checkpoint 的 `thread_id` 语义
 
 ### 6.2 恢复运行
 
@@ -371,15 +399,22 @@ flowchart TD
 
 ### 6.3 结果持久化
 
-`ResearchRunStore` 负责把运行结果写入 `research_runs` 表：
+`ResearchRunStore` 负责把运行结果写入 `research_runs` 表，并维护 conversation 级记忆快照：
 
 - 创建时状态为 `queued`
 - 启动执行时切到 `running`
 - 有 `__interrupt__` 时存成 `interrupted`
 - 正常终止时存成 `completed`
 - 异常时存成 `failed`
+- run 进入 `completed / interrupted / failed` 后会重建并写回 `conversation_memory`
 
-持久化的是 run 级状态，不是图内部逐节点事件。
+`conversation_memory` 里不保存最近 5 轮原文，只保存窗口外的压缩信息：
+
+- `rolling_summary`
+- `key_facts_json`
+- `open_questions_json`
+
+持久化的是 run 级状态和 conversation 级摘要，不是图内部逐节点事件。
 
 ### 6.4 事件流
 
@@ -424,6 +459,13 @@ planner 和 synthesizer 都有 fallback：
 - 运行态：`ResearchRunDetail.status`
 
 两者通过 `runtime.py` 的快照读取和 `run_manager.py` 的状态映射衔接，但没有逐节点持久化映射。
+
+### 7.6 conversation memory 是背景态，不是证据态
+
+- `memory` 在图里和 `request` 一起进入 planner / synthesizer
+- 它只用于连续性，不直接生成 citation
+- 真实可引用内容仍然来自本轮 `findings` 和 `sources`
+- deterministic fallback 也会消费 memory，只是方式更保守
 
 ## 8. 一个完整执行样例
 
