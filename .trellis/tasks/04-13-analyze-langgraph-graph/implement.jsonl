@@ -1,0 +1,6 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Graph-related backend modules live under app/graph and runtime wiring."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Document the graph through explicit nodes, state, and side-effect boundaries."}
+{"file": ".trellis/spec/backend/research-agent-runtime.md", "reason": "Capture the existing graph and runtime contracts accurately."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Trace how graph state flows into runtime persistence and API responses."}

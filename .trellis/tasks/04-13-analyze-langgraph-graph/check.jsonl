@@ -1,0 +1,6 @@
+{"file": ".claude/commands/trellis/finish-work.md", "reason": "Finish work checklist"}
+{"file": ".claude/commands/trellis/check.md", "reason": "Code quality check spec"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Keep graph analysis aligned with the actual backend module layout."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify the document reflects explicit orchestration and side-effect boundaries."}
+{"file": ".trellis/spec/backend/research-agent-runtime.md", "reason": "Verify state, node, and runtime contracts match the current implementation."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify the doc traces request, graph execution, checkpointing, and run persistence flow."}
