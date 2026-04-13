@@ -95,3 +95,99 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: Build async research workspace and web app
+
+**Date**: 2026-04-13
+**Task**: Build async research workspace and web app
+**Branch**: `master`
+
+### Summary
+
+Added an async run lifecycle with persisted history and SSE, plus a new React web workspace for creating, browsing, and reviewing deep research runs.
+
+### Main Changes
+
+| Item | Description |
+|------|-------------|
+| Backend lifecycle | Added persisted async run management with list/detail APIs, resume handling, and SSE event streaming. |
+| Frontend workspace | Added a new `web/` React + TypeScript app with create page, history page, detail page, and review flow. |
+| Contracts | Synced backend/frontend run status, event payloads, environment variables, and docs/specs for the new async workflow. |
+| Verification | Re-ran Python unit tests, frontend typecheck, Vitest, and production build before recording the session. |
+
+**Updated Files**:
+- `app/api/routes.py`
+- `app/api/schemas.py`
+- `app/config.py`
+- `app/domain/models.py`
+- `app/main.py`
+- `app/runtime.py`
+- `app/run_manager.py`
+- `app/run_store.py`
+- `tests/unit/test_run_manager.py`
+- `tests/unit/test_run_store.py`
+- `web/`
+- `.trellis/spec/backend/research-agent-runtime.md`
+- `.trellis/spec/frontend/directory-structure.md`
+- `.trellis/spec/frontend/state-management.md`
+- `.trellis/spec/frontend/type-safety.md`
+- `README.md`
+
+**Archived Tasks**:
+- `04-13-deep-research-frontend`
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2528cff` | (see git log) |
+
+### Testing
+
+- [OK] `python3 -m compileall app tests`
+- [OK] `python3 -m unittest discover -s tests/unit`
+- [OK] `cd web && npm run typecheck`
+- [OK] `cd web && npm run test`
+- [OK] `cd web && npm run build`
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 4: 重构 ChatGPT 风格研究工作台 UI
+
+**Date**: 2026-04-13
+**Task**: 重构 ChatGPT 风格研究工作台 UI
+**Branch**: `master`
+
+### Summary
+
+将前端重构为工作台式布局：左侧历史侧栏、composer 首页、统一的 run 详情工作区，并补充历史列表组件测试。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a06c50b` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
