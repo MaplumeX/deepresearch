@@ -369,3 +369,44 @@ Refactored research_worker into an internal staged subgraph, extracted determini
 ### Next Steps
 
 - None - task complete
+
+
+## Session 9: Add short-term conversation memory
+
+**Date**: 2026-04-13
+**Task**: Add short-term conversation memory
+**Branch**: `master`
+
+### Summary
+
+Added server-side conversation short-term memory with a recent five-run window, persisted older-turn summaries, runtime injection, deterministic planner/synthesis support, and unit coverage.
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Memory model | Added conversation memory payload/domain models and a dedicated `conversation_memory` service for recent-5 windowing, digesting, and older-turn summarization. |
+| Runtime | Wired memory through `run_manager`, `run_store`, `runtime`, and graph ingest/state so follow-up runs receive server-built memory without changing public API payloads. |
+| Planning and synthesis | Updated planner and synthesis to consume memory as continuity context only, explicitly keeping citations tied to current run sources. |
+| Persistence | Added `conversation_memory` storage in the run store for rolling summaries, key facts, and open questions outside the recent five-run window. |
+| Verification | Added/updated unit tests for memory building, run manager/store integration, planning fallback, and synthesis fallback; validated with `uv run pytest tests/unit` (`32 passed`). |
+| Specs | Updated runtime code-spec and LangGraph analysis docs to document signatures, contracts, persistence, and test requirements for short-term memory. |
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b48e0c6` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
