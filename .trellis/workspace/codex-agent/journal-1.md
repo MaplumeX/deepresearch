@@ -52,3 +52,46 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 2: Document current LangGraph graph
+
+**Date**: 2026-04-13
+**Task**: Document current LangGraph graph
+**Branch**: `master`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| Item | Description |
+|------|-------------|
+| Output | Added a current-state LangGraph analysis document under `docs/current-langgraph-graph.md` |
+| Scope | Mapped the graph builder, state contract, nodes, routing, interrupt/resume flow, runtime, run manager, store, and API entry points |
+| Task | Archived completed task `04-13-analyze-langgraph-graph` after the work commit |
+
+**Updated Files**:
+- `docs/current-langgraph-graph.md`
+- `.trellis/tasks/archive/2026-04/04-13-analyze-langgraph-graph/task.json`
+- `.trellis/workspace/codex-agent/journal-1.md`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3b432de` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
