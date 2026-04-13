@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -56,3 +56,37 @@ class ReportDraft(BaseModel):
     markdown: str
     cited_source_ids: list[str]
 
+
+RunStatus = Literal["queued", "running", "interrupted", "completed", "failed"]
+RunEventType = Literal[
+    "run.created",
+    "run.status_changed",
+    "run.progress",
+    "run.interrupted",
+    "run.completed",
+    "run.failed",
+    "run.resumed",
+]
+
+
+class ResearchRunSummary(BaseModel):
+    run_id: str
+    status: RunStatus
+    request: ResearchRequest
+    error_message: str | None = None
+    created_at: str
+    updated_at: str
+    completed_at: str | None = None
+
+
+class ResearchRunDetail(ResearchRunSummary):
+    result: dict[str, Any] | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
+class ResearchRunEvent(BaseModel):
+    type: RunEventType
+    run_id: str
+    status: RunStatus
+    timestamp: str
+    data: dict[str, Any] = Field(default_factory=dict)

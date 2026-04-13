@@ -43,7 +43,13 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(settings.llm_api_key, "legacy-key")
         self.assertEqual(settings.llm_base_url, "https://legacy.example/v1")
 
+    def test_uses_default_runs_db_path(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            get_settings.cache_clear()
+            settings = get_settings()
+
+        self.assertEqual(settings.runs_db_path, "research_runs.db")
+
 
 if __name__ == "__main__":
     unittest.main()
-

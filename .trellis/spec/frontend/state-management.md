@@ -22,30 +22,30 @@ Questions to answer:
 
 ## State Categories
 
-<!-- Local state, global state, server state, URL state -->
-
-(To be filled by the team)
+- Local state: transient form edits and UI-only event logs
+- URL state: route params such as `runId`
+- Server state: run list, run detail, and resume/create mutations
+- Realtime state: SSE events merged into React Query caches
 
 ---
 
 ## When to Use Global State
 
-<!-- Criteria for promoting state to global -->
-
-(To be filled by the team)
+- Prefer React Query cache for data fetched from the backend
+- Promote to explicit global state only when multiple distant routes need non-server UI state
+- Do not build a second client-side store for run detail if React Query + SSE already own it
 
 ---
 
 ## Server State
 
-<!-- How server data is cached and synchronized -->
-
-(To be filled by the team)
+- Use TanStack Query for list/detail queries and create/resume mutations
+- Let SSE patch list/detail caches in place so the UI does not need polling
+- Close realtime subscriptions when a run reaches `completed` or `failed`
 
 ---
 
 ## Common Mistakes
 
-<!-- State management mistakes your team has made -->
-
-(To be filled by the team)
+- Duplicating backend status strings inside multiple components instead of importing shared types
+- Mixing SSE-updated detail state with a separate local copy that silently drifts

@@ -1,16 +1,12 @@
 from __future__ import annotations
 
-from typing import Any, Literal
-
 from pydantic import BaseModel, Field
 
+from app.domain.models import ResearchRequest, ResearchRunDetail, ResearchRunSummary
 
-class RunRequest(BaseModel):
-    question: str = Field(min_length=1)
-    scope: str | None = None
-    output_language: Literal["zh-CN", "en"] = "zh-CN"
-    max_iterations: int | None = Field(default=None, ge=1, le=5)
-    max_parallel_tasks: int | None = Field(default=None, ge=1, le=5)
+
+class RunRequest(ResearchRequest):
+    pass
 
 
 class ResumeRequest(BaseModel):
@@ -18,8 +14,9 @@ class ResumeRequest(BaseModel):
     edited_report: str | None = None
 
 
-class RunResponse(BaseModel):
-    run_id: str
-    status: Literal["completed", "interrupted"]
-    result: dict[str, Any]
+class RunDetailResponse(BaseModel):
+    run: ResearchRunDetail
 
+
+class RunListResponse(BaseModel):
+    runs: list[ResearchRunSummary]

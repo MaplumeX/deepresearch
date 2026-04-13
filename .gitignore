@@ -3,3 +3,10 @@
 __pycache__/
 .pytest_cache/
 research.db
+research_runs.db
+research_runs.db-shm
+research_runs.db-wal
+node_modules/
+web/dist/
+web/coverage/
+*.tsbuildinfo

@@ -13,7 +13,9 @@ The backend is organized by responsibility, not by framework artifact type alone
 - `app/graph/` owns LangGraph state, nodes, routing, and worker entry points
 - `app/services/` holds pure business logic with no network side effects
 - `app/tools/` handles external I/O such as search, fetch, and extraction
-- `app/runtime.py` wires persistence and graph execution
+- `app/runtime.py` wires checkpoint persistence and graph execution
+- `app/run_store.py` persists run snapshots and history
+- `app/run_manager.py` owns async run lifecycle, background tasks, and SSE fan-out
 
 This keeps orchestration logic explicit while avoiding tool code leaking into graph nodes.
 
@@ -35,6 +37,8 @@ app/
 │   └── subgraphs/
 ├── services/
 ├── tools/
+├── run_manager.py
+├── run_store.py
 ├── config.py
 ├── main.py
 └── runtime.py
@@ -63,6 +67,11 @@ tests/
 - Search, fetch, and extraction adapters live here
 - Tool code may fail or return partial results; nodes must tolerate that
 - Do not hide business decisions inside tools
+
+### Runtime Adapters
+
+- Put async task launch, SSE fan-out, and run persistence adapters in top-level runtime modules such as `app/run_manager.py` and `app/run_store.py`
+- Keep these modules thin: they orchestrate infrastructure boundaries but should not duplicate graph logic or business rules from `app/services/`
 
 ---
 

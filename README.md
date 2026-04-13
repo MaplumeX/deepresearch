@@ -5,9 +5,10 @@
 ## 当前能力
 
 - LangGraph 主图编排：规划、派发、研究、合并、补洞、综合、引用审计、人工审核
-- FastAPI 接口：创建 run、恢复 interrupt run、健康检查
+- FastAPI 接口：异步创建 run、查询历史/详情、SSE 实时事件流、恢复 interrupt run、健康检查
+- React 前端：独立 `web/` package，支持创建 run、查看历史、详情页实时更新、人工审核恢复
 - OpenAI-compatible LLM 接入：支持自定义 `base_url`
-- SQLite checkpoint：支持长流程恢复
+- SQLite checkpoint + run store：支持长流程恢复和 run 历史记录
 - 搜索/抓取/抽取工具边界已经拆开，后续可替换成更强 provider
 
 ## 前置要求
@@ -71,6 +72,8 @@ set +a
 
 ## 3. 启动服务
 
+先启动后端：
+
 ```bash
 uvicorn app.main:app --reload
 ```
@@ -80,6 +83,22 @@ uvicorn app.main:app --reload
 ```text
 http://127.0.0.1:8000
 ```
+
+如果你要本地开发前端，再安装并启动 `web/`：
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+默认前端地址：
+
+```text
+http://127.0.0.1:5173
+```
+
+Vite 已经把 `/api` 和 `/health` 代理到后端，不需要额外配置 CORS。
 
 ## 4. 验证服务是否启动
 
@@ -105,13 +124,49 @@ curl -X POST http://127.0.0.1:8000/api/research/runs \
   }'
 ```
 
-返回里会包含：
+返回里会包含一个排队中的 run：
 
-- `run_id`
-- `status`
-- `result`
+```json
+{
+  "run": {
+    "run_id": "6d4c...",
+    "status": "queued",
+    "request": {
+      "question": "如何用 LangGraph 构建一个 deep research agent?",
+      "scope": null,
+      "output_language": "zh-CN",
+      "max_iterations": 2,
+      "max_parallel_tasks": 3
+    },
+    "result": null,
+    "warnings": [],
+    "error_message": null,
+    "created_at": "2026-04-13T08:00:00+00:00",
+    "updated_at": "2026-04-13T08:00:00+00:00",
+    "completed_at": null
+  }
+}
+```
 
-当 `status=interrupted` 时，说明当前流程停在人工审核节点，可以继续恢复：
+随后可以查询历史和详情：
+
+```bash
+curl http://127.0.0.1:8000/api/research/runs
+curl http://127.0.0.1:8000/api/research/runs/<run_id>
+```
+
+详情页 SSE 事件流接口：
+
+```bash
+curl -N http://127.0.0.1:8000/api/research/runs/<run_id>/events
+```
+
+终态包括：
+
+- `completed`
+- `failed`
+
+如果 `status=interrupted`，说明当前流程停在人工审核节点，可以继续恢复：
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/research/runs/<run_id>/resume \
@@ -146,10 +201,20 @@ python3 -m compileall app tests
 python3 -m unittest discover -s tests/unit
 ```
 
+前端类型检查 / 构建 / 单测：
+
+```bash
+cd web
+npm run typecheck
+npm run build
+npm run test
+```
+
 ## 运行说明
 
 - 如果没有配置 `LLM_BASE_URL` / `LLM_API_KEY`，规划和综合会退化为确定性 fallback
 - 如果没有配置 `TAVILY_API_KEY`，流程仍然能运行，但通常拿不到真实网页证据
+- `RUNS_DB_PATH` 默认是 `research_runs.db`，用于保存 run 历史和详情快照
 - 当前 `research_worker` 是骨架实现，后续适合替换成更强的 deepagents 子代理执行层
 
 ## 下一步建议

@@ -1,0 +1,13 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Keep orchestration explicit and side effects out of services"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Frontend needs explicit run and event types"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Backend runtime and persistence adapter placement"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Frontend and backend contracts change together"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Avoid duplicating request/run types across layers without a clear boundary"}
+{"file": ".trellis/spec/backend/research-agent-runtime.md", "reason": "API/state contracts change for async runs and SSE"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Server state and SSE updates need a consistent state strategy"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "New React pages and review form components"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "New frontend should start with testable, typed patterns"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Need a clean initial web package layout"}

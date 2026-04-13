@@ -21,6 +21,7 @@ class Settings:
     llm_base_url: str | None
     tavily_api_key: str | None
     checkpoint_db_path: str
+    runs_db_path: str
     fetch_timeout_seconds: float
     default_max_iterations: int
     default_max_parallel_tasks: int
@@ -40,6 +41,7 @@ def get_settings() -> Settings:
         llm_base_url=os.getenv("LLM_BASE_URL") or os.getenv("OPENAI_BASE_URL"),
         tavily_api_key=os.getenv("TAVILY_API_KEY"),
         checkpoint_db_path=os.getenv("CHECKPOINT_DB_PATH", "research.db"),
+        runs_db_path=os.getenv("RUNS_DB_PATH", "research_runs.db"),
         fetch_timeout_seconds=float(os.getenv("FETCH_TIMEOUT_SECONDS", "15")),
         default_max_iterations=int(os.getenv("DEFAULT_MAX_ITERATIONS", "2")),
         default_max_parallel_tasks=int(os.getenv("DEFAULT_MAX_PARALLEL_TASKS", "3")),

@@ -22,6 +22,7 @@ class PlanningServiceTest(unittest.TestCase):
             llm_base_url=None,
             tavily_api_key=None,
             checkpoint_db_path="test.db",
+            runs_db_path="test-runs.db",
             fetch_timeout_seconds=1.0,
             default_max_iterations=2,
             default_max_parallel_tasks=3,

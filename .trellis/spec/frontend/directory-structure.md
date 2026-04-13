@@ -22,33 +22,44 @@ Questions to answer:
 
 ## Directory Layout
 
-```
-<!-- Replace with your actual structure -->
-src/
-├── ...
-└── ...
+```text
+web/
+├── index.html
+├── package.json
+├── src/
+│   ├── app/          # Router + providers
+│   ├── components/   # Reusable UI building blocks
+│   ├── hooks/        # React Query + SSE hooks
+│   ├── lib/          # API clients and pure UI utilities
+│   ├── pages/        # Route-level screens
+│   ├── test/         # Test setup
+│   ├── types/        # Frontend API contracts
+│   ├── main.tsx
+│   └── styles.css
+└── vite.config.ts
 ```
 
 ---
 
 ## Module Organization
 
-<!-- How should new features be organized? -->
-
-(To be filled by the team)
+- Keep route-level orchestration inside `pages/`
+- Extract reusable fetch/query logic into `hooks/` and `lib/`
+- Put backend contract mirrors in `types/`; do not scatter status strings across components
+- Keep styling centralized in `styles.css` until repeated patterns justify splitting files
 
 ---
 
 ## Naming Conventions
 
-<!-- File and folder naming rules -->
-
-(To be filled by the team)
+- Use PascalCase for React components and pages
+- Use camelCase for hooks and utility files
+- Keep one responsibility per file where practical
 
 ---
 
 ## Examples
 
-<!-- Link to well-organized modules as examples -->
-
-(To be filled by the team)
+- `src/pages/RunDetailPage.tsx`: route assembly for detail view
+- `src/hooks/useRunEvents.ts`: SSE subscription + cache sync
+- `src/lib/api.ts`: typed API client boundary

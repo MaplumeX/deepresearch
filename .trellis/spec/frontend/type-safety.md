@@ -22,30 +22,28 @@ Questions to answer:
 
 ## Type Organization
 
-<!-- Where types are defined, shared types vs local types -->
-
-(To be filled by the team)
+- Mirror backend HTTP and SSE contracts under `web/src/types/`
+- Keep component-local props next to the component when they are not shared across routes
+- Reuse frontend run/request/event types instead of re-declaring string unions in components
 
 ---
 
 ## Validation
 
-<!-- Runtime validation patterns (Zod, Yup, io-ts, etc.) -->
-
-(To be filled by the team)
+- Use `zod` at form boundaries for request payload validation
+- Trust backend-validated response payloads after the typed API client boundary
 
 ---
 
 ## Common Patterns
 
-<!-- Type utilities, generics, type guards -->
-
-(To be filled by the team)
+- Use narrow string unions for run status and event type
+- Wrap API envelopes such as `{ run }` and `{ runs }` in explicit interfaces
+- Convert `run.result` access through small helper functions when fields are optional or heterogeneous
 
 ---
 
 ## Forbidden Patterns
 
-<!-- any, type assertions, etc. -->
-
-(To be filled by the team)
+- Do not use `any` for run/event payloads
+- Avoid sprinkling `as` assertions into page code; keep casts at the API boundary only when unavoidable
