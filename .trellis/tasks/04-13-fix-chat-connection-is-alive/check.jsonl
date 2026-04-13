@@ -1,0 +1,6 @@
+{"file": ".gemini/commands/trellis/finish-work.toml", "reason": "Finish work checklist"}
+{"file": ".gemini/commands/trellis/check.toml", "reason": "Code quality check spec"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Ensure fix stays in runtime adapter layer."}
+{"file": ".trellis/spec/backend/research-agent-runtime.md", "reason": "Verify both run and resume paths still honor runtime contract."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify no business logic leaks into tools or graph nodes."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Verify proxy compatibility logic is shared instead of duplicated across tools."}

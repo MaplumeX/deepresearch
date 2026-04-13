@@ -1,0 +1,6 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Runtime compatibility belongs in top-level runtime adapters."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Keep external side-effect and dependency compatibility logic in runtime boundaries."}
+{"file": ".trellis/spec/backend/research-agent-runtime.md", "reason": "This bug affects run_research and resume_research runtime contracts."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "The same proxy/httpx compatibility handling appears in multiple tools and should be shared."}

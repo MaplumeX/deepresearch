@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import asynccontextmanager
 from dataclasses import asdict, is_dataclass
 from typing import Any
 
@@ -29,11 +30,9 @@ def build_initial_state(request_payload: dict[str, Any]) -> dict[str, Any]:
 
 
 async def run_research(request_payload: dict[str, Any], run_id: str) -> dict[str, Any]:
-    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-
     settings = get_settings()
     config = {"configurable": {"thread_id": run_id}}
-    async with AsyncSqliteSaver.from_conn_string(settings.checkpoint_db_path) as checkpointer:
+    async with _open_checkpointer(settings.checkpoint_db_path) as checkpointer:
         graph = build_graph(checkpointer=checkpointer)
         result = await graph.ainvoke(
             build_initial_state(request_payload),
@@ -43,17 +42,42 @@ async def run_research(request_payload: dict[str, Any], run_id: str) -> dict[str
 
 
 async def resume_research(run_id: str, resume_payload: dict[str, Any]) -> dict[str, Any]:
-    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-
     settings = get_settings()
     config = {"configurable": {"thread_id": run_id}}
-    async with AsyncSqliteSaver.from_conn_string(settings.checkpoint_db_path) as checkpointer:
+    async with _open_checkpointer(settings.checkpoint_db_path) as checkpointer:
         graph = build_graph(checkpointer=checkpointer)
         result = await graph.ainvoke(
             Command(resume=resume_payload),
             config=config,
         )
         return await _read_graph_snapshot(graph, config, result)
+
+
+@asynccontextmanager
+async def _open_checkpointer(checkpoint_db_path: str):
+    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+    _ensure_aiosqlite_connection_compatibility()
+    async with AsyncSqliteSaver.from_conn_string(checkpoint_db_path) as checkpointer:
+        yield checkpointer
+
+
+def _ensure_aiosqlite_connection_compatibility() -> None:
+    import aiosqlite
+
+    if hasattr(aiosqlite.Connection, "is_alive"):
+        return
+
+    # langgraph-checkpoint-sqlite still probes `is_alive()` on the connection.
+    def is_alive(connection: aiosqlite.Connection) -> bool:
+        worker = getattr(connection, "_thread", None)
+        if worker is not None and hasattr(worker, "is_alive"):
+            return bool(worker.is_alive())
+        if not bool(getattr(connection, "_running", False)):
+            return False
+        return getattr(connection, "_connection", None) is not None
+
+    aiosqlite.Connection.is_alive = is_alive
 
 
 async def _read_graph_snapshot(graph, config: dict[str, Any], raw_result: dict[str, Any]) -> dict[str, Any]:

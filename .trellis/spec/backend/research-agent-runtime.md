@@ -299,6 +299,7 @@ REQUIRE_HUMAN_REVIEW     optional bool, defaults to false
 | run persistence -> conversation thread | run lifecycle updates | assistant message content mirrors final report, draft report, or failure text for the linked run | keep assistant placeholder empty while queued/running; update assistant message content on interrupt/completion/failure |
 | review -> finalize | resume payload | Optional `edited_report` override only | Keep draft report when no edited report is supplied |
 | resume API -> runtime | `approved`, optional `edited_report` | run must be in `interrupted` status before resume | return 409 if client resumes a non-interrupted run |
+| runtime -> checkpoint saver | `CHECKPOINT_DB_PATH` and runtime sqlite dependency set | runtime adapter must patch `aiosqlite.Connection.is_alive()` when the installed `aiosqlite` version no longer exposes it but `langgraph-checkpoint-sqlite` still probes it | fail the run with a surfaced runtime error if checkpoint initialization still cannot complete after compatibility patching |
 | store migration -> legacy runs | rows created before conversation support | missing conversation/message linkage is backfilled into one-run-one-conversation threads during initialization | preserve historical runs instead of dropping them or returning partial conversation payloads |
 | SSE endpoint -> frontend | `run_id` event stream | run must exist and payload must stay JSON-safe | send keep-alive comments while waiting; close after terminal states; include enough conversation metadata for cache patching |
 
@@ -322,6 +323,7 @@ REQUIRE_HUMAN_REVIEW     optional bool, defaults to false
 - Planner and synthesizer fall back to deterministic logic.
 - Worker query rewrite, ranking, filtering, and scoring still run deterministically without model access.
 - One search provider may be unavailable and the graph still completes from the surviving provider or with an empty-evidence report.
+- Installed `aiosqlite` may omit `Connection.is_alive()` while checkpoint persistence still succeeds through the runtime compatibility shim.
 - Legacy runs that predate conversation support are backfilled to synthetic one-run conversations on initialization.
 - Browser refreshes during a running job and the frontend restores state via detail API before reopening SSE.
 
@@ -346,6 +348,7 @@ REQUIRE_HUMAN_REVIEW     optional bool, defaults to false
 - Unit test deterministic planning fallback when model credentials are absent.
 - Unit test `app/run_store.py` for persisted conversation threading, assistant message synchronization, and legacy linkage backfill.
 - Unit test `app/run_manager.py` for async lifecycle transitions, follow-up turn creation, and resume rules.
+- Unit test `app/runtime.py` for sqlite checkpoint compatibility when `aiosqlite.Connection.is_alive()` is absent.
 - Syntax compilation for `app/` and `tests/`.
 
 ### 7. Wrong vs Correct
