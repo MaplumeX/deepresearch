@@ -13,6 +13,10 @@ class ResearchRequest(BaseModel):
     max_parallel_tasks: int = Field(default=3, ge=1, le=5)
 
 
+class ChatRequest(BaseModel):
+    question: str = Field(min_length=1)
+
+
 class ResearchTask(BaseModel):
     task_id: str
     title: str
@@ -159,6 +163,7 @@ class QualityGateResult(BaseModel):
 
 
 RunStatus = Literal["queued", "running", "interrupted", "completed", "failed"]
+ChatTurnStatus = Literal["queued", "running", "completed", "failed"]
 RunEventType = Literal[
     "run.created",
     "run.status_changed",
@@ -167,6 +172,12 @@ RunEventType = Literal[
     "run.completed",
     "run.failed",
     "run.resumed",
+]
+ChatEventType = Literal[
+    "chat.turn.created",
+    "chat.turn.status_changed",
+    "chat.turn.completed",
+    "chat.turn.failed",
 ]
 
 
@@ -218,6 +229,7 @@ class ResearchRunDetail(ResearchRunSummary):
 
 
 ConversationMessageRole = Literal["user", "assistant"]
+ConversationMode = Literal["chat", "research"]
 
 
 class ConversationMessage(BaseModel):
@@ -233,6 +245,7 @@ class ConversationMessage(BaseModel):
 
 class ResearchConversationSummary(BaseModel):
     conversation_id: str
+    mode: ConversationMode
     title: str
     latest_message_preview: str
     latest_run_status: RunStatus | None = None
@@ -249,5 +262,30 @@ class ResearchRunEvent(BaseModel):
     type: RunEventType
     run_id: str
     status: RunStatus
+    timestamp: str
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class ChatTurnSummary(BaseModel):
+    turn_id: str
+    conversation_id: str
+    origin_message_id: str
+    assistant_message_id: str
+    status: ChatTurnStatus
+    request: ChatRequest
+    error_message: str | None = None
+    created_at: str
+    updated_at: str
+    completed_at: str | None = None
+
+
+class ChatTurnDetail(ChatTurnSummary):
+    pass
+
+
+class ChatTurnEvent(BaseModel):
+    type: ChatEventType
+    turn_id: str
+    status: ChatTurnStatus
     timestamp: str
     data: dict[str, Any] = Field(default_factory=dict)

@@ -36,9 +36,32 @@ class ResearchRunStoreTest(unittest.TestCase):
         self.assertEqual(len(listed_runs), 1)
         self.assertEqual(len(listed_conversations), 1)
         self.assertIsNotNone(conversation)
+        self.assertEqual(conversation.mode, "research")
         self.assertEqual(len(conversation.messages), 2)
         self.assertEqual(conversation.messages[0].role, "user")
         self.assertEqual(conversation.messages[1].role, "assistant")
+
+    def test_create_chat_turn_persists_chat_mode_without_research_runs(self) -> None:
+        conversation, turn = self.store.create_chat_turn(
+            conversation_id="chat-1",
+            turn_id="turn-1",
+            request={"question": "Hello"},
+            origin_message_id="message-1",
+            assistant_message_id="message-2",
+            title="Hello",
+        )
+
+        stored_turn = self.store.get_chat_turn(turn.turn_id)
+        listed_chat = self.store.list_conversations(mode="chat")
+        listed_research = self.store.list_conversations(mode="research")
+
+        self.assertEqual(conversation.mode, "chat")
+        self.assertIsNotNone(stored_turn)
+        self.assertEqual(stored_turn.status, "queued")
+        self.assertEqual(len(conversation.runs), 0)
+        self.assertEqual(len(conversation.messages), 2)
+        self.assertEqual(len(listed_chat), 1)
+        self.assertEqual(len(listed_research), 0)
 
     def test_create_follow_up_turn_links_to_parent_run(self) -> None:
         initial = self.store.create_run(

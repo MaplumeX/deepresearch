@@ -69,9 +69,9 @@ class RunEventBroker:
 
 
 class ResearchRunManager:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, store: ResearchRunStore | None = None) -> None:
         self._settings = settings
-        self._store = ResearchRunStore(settings.runs_db_path)
+        self._store = store or ResearchRunStore(settings.runs_db_path)
         self._broker = RunEventBroker()
         self._active_tasks: dict[str, asyncio.Task[None]] = {}
 
@@ -122,7 +122,7 @@ class ResearchRunManager:
         return self._store.list_runs()
 
     def list_conversations(self) -> list[ResearchConversationSummary]:
-        return self._store.list_conversations()
+        return self._store.list_conversations(mode="research")
 
     def get_run(self, run_id: str) -> ResearchRunDetail:
         run = self._store.get_run(run_id)
@@ -131,7 +131,7 @@ class ResearchRunManager:
         return run
 
     def get_conversation(self, conversation_id: str) -> ResearchConversationDetail:
-        conversation = self._store.get_conversation(conversation_id)
+        conversation = self._store.get_conversation(conversation_id, expected_mode="research")
         if conversation is None:
             raise ConversationNotFoundError(conversation_id)
         return conversation

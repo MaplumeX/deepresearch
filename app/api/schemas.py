@@ -1,8 +1,12 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, Field
 
 from app.domain.models import (
+    ConversationMode,
+    ChatTurnDetail,
     ResearchConversationDetail,
     ResearchConversationSummary,
     ResearchRequest,
@@ -20,7 +24,21 @@ class ResumeRequest(BaseModel):
     edited_report: str | None = None
 
 
-class ConversationTurnRequest(ResearchRequest):
+class ResearchConversationTurnRequest(ResearchRequest):
+    parent_run_id: str | None = None
+
+
+class ConversationCreateRequest(BaseModel):
+    mode: ConversationMode
+    question: str = Field(min_length=1)
+    scope: str | None = None
+    output_language: Literal["zh-CN", "en"] | None = None
+    max_iterations: int | None = Field(default=None, ge=1, le=5)
+    max_parallel_tasks: int | None = Field(default=None, ge=1, le=5)
+
+
+class ConversationMessageRequest(BaseModel):
+    question: str = Field(min_length=1)
     parent_run_id: str | None = None
 
 
@@ -42,4 +60,9 @@ class ConversationListResponse(BaseModel):
 
 class ConversationMutationResponse(BaseModel):
     conversation: ResearchConversationDetail
-    run: ResearchRunDetail
+    run: ResearchRunDetail | None = None
+    turn: ChatTurnDetail | None = None
+
+
+class ChatTurnDetailResponse(BaseModel):
+    turn: ChatTurnDetail

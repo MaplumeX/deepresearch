@@ -64,7 +64,14 @@ function MarkdownContent({ content }: { content: string }) {
 }
 
 export function ChatArea() {
-  const { activeConversationParams, streamingAssistantPreview, isGenerating, error, clearError } = useChatStore()
+  const {
+    activeConversation,
+    draftMode,
+    streamingAssistantPreview,
+    isGenerating,
+    error,
+    clearError,
+  } = useChatStore()
 
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -72,15 +79,20 @@ export function ChatArea() {
     if (scrollRef.current) {
       scrollRef.current.scrollIntoView({ behavior: 'smooth' })
     }
-  }, [activeConversationParams?.messages, streamingAssistantPreview])
+  }, [activeConversation?.messages, streamingAssistantPreview])
 
-  const allMessages = activeConversationParams?.messages || []
+  const allMessages = activeConversation?.messages || []
   const lastMessage = allMessages[allMessages.length - 1]
   const shouldHideLastPlaceholder = isGenerating
     && lastMessage
     && lastMessage.role === 'assistant'
     && !lastMessage.content.trim()
   const messages = shouldHideLastPlaceholder ? allMessages.slice(0, -1) : allMessages
+  const currentMode = activeConversation?.mode ?? draftMode
+  const emptyTitle = currentMode === 'research' ? 'Deep research is ready' : 'How can I help you today?'
+  const emptyDescription = currentMode === 'research'
+    ? 'Send a question to create a research session with planning, retrieval, and synthesis.'
+    : 'Start a normal conversation. Deep Research stays off until you explicitly enable it.'
 
   return (
     <ScrollArea className="flex-1 px-4 md:px-0 scroll-smooth">
@@ -91,7 +103,10 @@ export function ChatArea() {
             <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mb-6">
                <Bot className="h-8 w-8 text-foreground" />
             </div>
-            <h2 className="text-xl font-medium">How can I help you today?</h2>
+            <h2 className="text-xl font-medium">{emptyTitle}</h2>
+            <p className="mt-3 max-w-md text-center text-sm leading-6 text-muted-foreground">
+              {emptyDescription}
+            </p>
           </div>
         )}
 

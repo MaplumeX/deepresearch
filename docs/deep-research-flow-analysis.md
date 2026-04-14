@@ -163,8 +163,8 @@ flowchart TD
 
 1. 用户在 `web/src/pages/HomePage.tsx` 进入首页。
 2. `ConversationComposer` 收集输入，并在提交时构造 `ConversationTurnRequest`。
-3. `useCreateConversationMutation()` 调用 `createConversation()`，请求 `POST /api/research/conversations`。
-4. `app/api/routes.py::create_conversation()` 把 payload 交给 `ResearchRunManager.create_conversation()`。
+3. `useCreateConversationMutation()` 调用 `createConversation()`，请求 `POST /api/conversations`，并显式带上 `mode=research`。
+4. `app/api/routes.py::create_any_conversation()` 根据 `mode` 分发，把 payload 交给 `ResearchRunManager.create_conversation()`。
 5. `ResearchRunManager` 内部调用 `_create_turn_in_new_conversation()`：
    - 生成 `conversation_id`、`run_id`、用户消息 ID、助手消息 ID
    - 用空的 conversation memory 作为初始上下文
@@ -273,7 +273,7 @@ flowchart TD
 ### 显式事实
 
 - `ConversationPage` 会读取某个 conversation 的完整消息和 run 列表。
-- 追问由 `POST /api/research/conversations/{conversation_id}/messages` 驱动。
+- 追问由 `POST /api/conversations/{conversation_id}/messages` 驱动。
 - 前端提交追问时会把最近一个 `run_id` 作为 `parent_run_id` 带上。
 - `ResearchRunManager.create_message()` 会：
   - 读取 conversation

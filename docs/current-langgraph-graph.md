@@ -376,7 +376,7 @@ flowchart TD
 
 入口链路：
 
-`POST /api/research/conversations/{conversation_id}/messages`
+`POST /api/conversations/{conversation_id}/messages`
 -> `ResearchRunManager.create_message()`
 -> 读取 `conversation` 与 `conversation_memory`
 -> `build_memory_context(conversation, persisted_memory, window_size=5, parent_run_id=...)`

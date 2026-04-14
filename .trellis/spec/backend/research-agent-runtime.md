@@ -20,10 +20,12 @@ GET /api/research/runs
 GET /api/research/runs/{run_id}
 GET /api/research/runs/{run_id}/events
 POST /api/research/runs/{run_id}/resume
-POST /api/research/conversations
-GET /api/research/conversations
-GET /api/research/conversations/{conversation_id}
-POST /api/research/conversations/{conversation_id}/messages
+GET /api/conversations
+GET /api/conversations/{conversation_id}
+POST /api/conversations
+POST /api/conversations/{conversation_id}/messages
+GET /api/chat/turns/{turn_id}
+GET /api/chat/turns/{turn_id}/events
 GET /health
 ```
 
@@ -45,6 +47,12 @@ class ResearchRunManager:
     def list_runs() -> list[ResearchRunSummary]
     def get_conversation(conversation_id: str) -> ResearchConversationDetail
     def list_conversations() -> list[ResearchConversationSummary]
+
+class ChatConversationManager:
+    async def create_conversation(request_payload: dict[str, Any]) -> tuple[ResearchConversationDetail, ChatTurnDetail]
+    async def create_message(conversation_id: str, request_payload: dict[str, Any]) -> tuple[ResearchConversationDetail, ChatTurnDetail]
+    def get_turn(turn_id: str) -> ChatTurnDetail
+    async def stream_events(turn_id: str) -> AsyncIterator[str]
 ```
 
 #### Graph Nodes
@@ -93,6 +101,19 @@ def emit_results_node(state: dict) -> dict
   "max_iterations": "int, 1..5",
   "max_parallel_tasks": "int, 1..5",
   "parent_run_id": "string, optional, follow-up source run inside the same conversation"
+}
+```
+
+#### Conversation Create Request Contract
+
+```json
+{
+  "mode": "chat | research",
+  "question": "string, required, non-empty",
+  "scope": "string, optional, research only",
+  "output_language": "zh-CN | en | null, research only",
+  "max_iterations": "int, 1..5 or null, research only",
+  "max_parallel_tasks": "int, 1..5 or null, research only"
 }
 ```
 
@@ -235,6 +256,7 @@ Required tests and assertion points for this contract:
 ```json
 {
   "conversation_id": "string",
+  "mode": "chat | research",
   "title": "string",
   "latest_message_preview": "string",
   "latest_run_status": "queued | running | interrupted | completed | failed | null",
@@ -248,6 +270,7 @@ Required tests and assertion points for this contract:
 ```json
 {
   "conversation_id": "string",
+  "mode": "chat | research",
   "title": "string",
   "latest_message_preview": "string",
   "latest_run_status": "queued | running | interrupted | completed | failed | null",
@@ -299,11 +322,29 @@ Required tests and assertion points for this contract:
 }
 ```
 
+#### Chat Turn Event Contract
+
+```json
+{
+  "type": "chat.turn.created | chat.turn.status_changed | chat.turn.completed | chat.turn.failed",
+  "turn_id": "string",
+  "status": "queued | running | completed | failed",
+  "timestamp": "ISO-8601 timestamp",
+  "data": {
+    "message": "optional string",
+    "turn": "optional chat turn snapshot",
+    "conversation": "optional conversation summary snapshot",
+    "assistant_message": "optional assistant message snapshot for the affected turn"
+  }
+}
+```
+
 #### Persistence Contract
 
 ```text
 conversations(
   conversation_id PK,
+  mode,
   title,
   created_at,
   updated_at
@@ -335,6 +376,19 @@ research_runs(
   completed_at nullable
 )
 
+chat_turns(
+  turn_id PK,
+  conversation_id,
+  origin_message_id,
+  assistant_message_id,
+  status,
+  request_json,
+  error_message nullable,
+  created_at,
+  updated_at,
+  completed_at nullable
+)
+
 conversation_memory(
   conversation_id PK,
   rolling_summary,
@@ -343,6 +397,8 @@ conversation_memory(
   updated_at
 )
 ```
+
+This store no longer auto-migrates pre-conversation legacy rows. If the on-disk schema predates `mode`, `conversation_id`, or message linkage columns, reset or migrate the database outside the app before startup.
 
 #### Graph State Contract
 
@@ -461,8 +517,9 @@ REQUIRE_HUMAN_REVIEW     optional bool, defaults to false
 | Boundary | Input | Validation | Failure Behavior |
 |----------|-------|------------|------------------|
 | API -> ingest_request | `question`, limits, language | `ResearchRequest` validates non-empty question and bounded limits | Raise validation error before graph execution |
-| create conversation API -> run store | validated conversation turn payload | create conversation, user message, assistant placeholder, and queued run in the same persistence boundary | return 500 if storage fails before launch |
-| follow-up message API -> manager | `conversation_id`, optional `parent_run_id` | conversation must exist; explicit `parent_run_id` must belong to the same conversation; implicit parent defaults to latest run | return 404 for missing conversation; return 409 when source run is still active or belongs to another conversation |
+| create conversation API -> manager | validated create payload with explicit `mode` | dispatch to research or chat manager; create conversation, user message, assistant placeholder, and queued run/turn inside the same persistence boundary | return 500 if storage fails before launch |
+| generic conversation list/detail API -> store | `conversation_id` optional | return both chat and research conversations with explicit `mode`; research details include `runs`, chat details return an empty `runs` list | return 404 when target conversation is missing |
+| follow-up message API -> manager | `conversation_id`, question, optional `parent_run_id` | conversation must exist; conversation `mode` decides whether to call research or chat manager; explicit `parent_run_id` must belong to the same research conversation | return 404 for missing conversation; return 409 when source run is still active, belongs to another conversation, or the mode-specific manager rejects the request |
 | follow-up manager -> memory builder | conversation detail, optional persisted conversation memory | build memory from the recent 5 runs; if the requested parent run falls outside the latest 5, force it into the window and recompute older summary on the fly | fall back to deterministic summary rebuild instead of dropping memory context |
 | run store -> detail/list API | `run_id` or conversation/list query | run must exist for detail/event routes; conversation must exist for conversation routes | return 404 when target run or conversation is missing |
 | ingest_request -> graph state | request payload + memory payload | Normalize integer budgets before Pydantic validation and normalize memory shape into explicit `rolling_summary/recent_turns/key_facts/open_questions` keys | Invalid request values are clamped first, then validated; missing memory fields become empty defaults |
@@ -510,14 +567,15 @@ REQUIRE_HUMAN_REVIEW     optional bool, defaults to false
 - One search provider may be unavailable and the graph still completes from the surviving provider or with an empty-evidence report.
 - Legacy string-shaped `gaps` in older run snapshots still degrade to readable open questions in conversation memory.
 - Installed `aiosqlite` may omit `Connection.is_alive()` while checkpoint persistence still succeeds through the runtime compatibility shim.
-- Legacy runs that predate conversation support are backfilled to synthetic one-run conversations on initialization.
 - Browser refreshes during a running job and the frontend restores state via detail API before reopening SSE.
 - Conversations with 5 or fewer runs persist an empty `rolling_summary` while still providing explicit recent turns.
+- Chat mode may run without model credentials; the chat manager returns a deterministic fallback assistant reply instead of failing the request during initialization.
 
 #### Bad
 - Empty `question`.
 - `max_iterations` or `max_parallel_tasks` outside the accepted range after normalization.
 - Follow-up payload references a run from another conversation.
+- Chat or research message flow targets a conversation id whose persisted `mode` does not match the requested execution path.
 - Follow-up payload is sent while the latest source run is still `queued` or `running`.
 - Planner or synthesizer treats conversation memory as a citation source.
 - Report cites a source id that is not present in `sources`.

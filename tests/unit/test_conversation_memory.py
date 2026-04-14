@@ -72,6 +72,7 @@ class ConversationMemoryServiceTest(unittest.TestCase):
             messages.append(_build_message(index, "assistant", f"Answer {index}"))
         conversation = ResearchConversationDetail(
             conversation_id="conversation-1",
+            mode="research",
             title="Conversation",
             latest_message_preview="Answer 6",
             latest_run_status="completed",
@@ -93,6 +94,7 @@ class ConversationMemoryServiceTest(unittest.TestCase):
         runs = [_build_run(index) for index in range(1, 8)]
         conversation = ResearchConversationDetail(
             conversation_id="conversation-1",
+            mode="research",
             title="Conversation",
             latest_message_preview="Answer 7",
             latest_run_status="completed",

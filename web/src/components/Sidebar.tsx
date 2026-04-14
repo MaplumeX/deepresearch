@@ -37,10 +37,15 @@ export function Sidebar() {
                key={conv.conversation_id}
                onClick={() => loadConversation(conv.conversation_id)}
                variant={activeConversationId === conv.conversation_id ? "secondary" : "ghost"} 
-               className="justify-start gap-2 font-normal h-10 px-2 truncate w-full text-left transition-colors"
+               className="justify-start gap-2 font-normal h-auto min-h-10 px-2 py-2 w-full text-left transition-colors"
             >
                <MessageSquare className="h-4 w-4 shrink-0 opacity-70" />
-               <span className="truncate">{conv.title || 'Untitled Session'}</span>
+               <span className="min-w-0 flex-1 truncate">{conv.title || 'Untitled Session'}</span>
+               {conv.mode === 'research' && (
+                 <span className="shrink-0 rounded-full border border-border/70 bg-background px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                   Research
+                 </span>
+               )}
             </Button>
           ))}
         </div>

@@ -5,19 +5,28 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.api.routes import router
+from app.chat_manager import ChatConversationManager
 from app.config import get_settings
 from app.run_manager import ResearchRunManager
+from app.run_store import ResearchRunStore
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    manager = ResearchRunManager(get_settings())
-    await manager.initialize()
-    app.state.run_manager = manager
+    settings = get_settings()
+    store = ResearchRunStore(settings.runs_db_path)
+    run_manager = ResearchRunManager(settings, store=store)
+    chat_manager = ChatConversationManager(settings, store=store)
+    await run_manager.initialize()
+    await chat_manager.initialize()
+    app.state.conversation_store = store
+    app.state.run_manager = run_manager
+    app.state.chat_manager = chat_manager
     try:
         yield
     finally:
-        await manager.shutdown()
+        await chat_manager.shutdown()
+        await run_manager.shutdown()
 
 
 def create_app() -> FastAPI:
