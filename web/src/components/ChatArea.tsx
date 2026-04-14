@@ -178,7 +178,6 @@ export function ChatArea() {
             <div className="flex flex-col gap-2 max-w-[85%] text-[15px] px-5 py-3.5 shadow-[0_0_20px_rgba(0,0,0,0.02)] transition-all relative overflow-hidden bg-transparent rounded-2xl leading-relaxed text-foreground">
               <div className="leading-relaxed">
                 <MarkdownContent content={streamingAssistantPreview} />
-                <span className="inline-block w-2 h-[1em] ml-1 bg-foreground animate-pulse align-middle opacity-50 relative -top-[2px]"></span>
               </div>
             </div>
           </div>
