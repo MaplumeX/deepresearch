@@ -669,3 +669,36 @@ Completely rewrote the frontend from legacy codebase to modern React+Zustand+sha
 ### Next Steps
 
 - None - task complete
+
+
+## Session 16: 修复前端渲染和交互问题
+
+**Date**: 2026-04-14
+**Task**: 修复前端渲染和交互问题
+**Branch**: `master`
+
+### Summary
+
+修复了 ChatArea Markdown 无法渲染、新会话未立即同步到侧边栏、UI 缺少错误反馈、流式预览被空内容覆盖重置等问题。引入 react-markdown 和 remark-gfm，构建和 lint 均通过。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4541b10` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
