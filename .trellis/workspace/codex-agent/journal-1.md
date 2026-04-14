@@ -546,3 +546,54 @@ Added repository lint entrypoints for Python and web, documented the workflow, a
 ### Next Steps
 
 - None - task complete
+
+
+## Session 13: Document deep research flow
+
+**Date**: 2026-04-14
+**Task**: Document deep research flow
+**Branch**: `master`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Analysis | Traced the end-to-end deep research flow across frontend entrypoints, API routes, run lifecycle, LangGraph orchestration, persistence, and SSE updates. |
+| Documentation | Added a repository document that explains the new run path, follow-up conversation path, worker subgraph flow, quality gate loop, and human review resume flow. |
+| Task Tracking | Archived the completed task `04-14-analyze-deep-research-flow`. |
+
+**Updated Files**:
+- `docs/deep-research-flow-analysis.md`
+- `.trellis/tasks/archive/2026-04/04-14-analyze-deep-research-flow/task.json`
+- `.trellis/tasks/archive/2026-04/04-14-analyze-deep-research-flow/prd.md`
+- `.trellis/tasks/archive/2026-04/04-14-analyze-deep-research-flow/check.jsonl`
+- `.trellis/tasks/archive/2026-04/04-14-analyze-deep-research-flow/debug.jsonl`
+- `.trellis/tasks/archive/2026-04/04-14-analyze-deep-research-flow/implement.jsonl`
+
+**Verification**:
+- Checked document content against the current implementation files.
+- Ran `git diff --check` for the new Markdown content.
+- Did not run backend/frontend test suites because this session only changed documentation and task metadata.
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `92b880a` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

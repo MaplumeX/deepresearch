@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 12
+- **Total Sessions**: 13
 - **Last Active**: 2026-04-14
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~548 | Active |
+| `journal-1.md` | ~599 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 13 | 2026-04-14 | Document deep research flow | `92b880a` | `master` |
 | 12 | 2026-04-14 | Structured report contract for deep research | `b1903a2` | `master` |
 | 11 | 2026-04-14 | Add structured research quality gate and replanning loop | `c1b1d2b` | `master` |
 | 10 | 2026-04-14 | Add frontend and backend lint checks | `b821d71` | `master` |
