@@ -1,0 +1,5 @@
+{"file": ".gemini/commands/trellis/finish-work.toml", "reason": "Finish work checklist"}
+{"file": ".gemini/commands/trellis/check.toml", "reason": "Code quality check spec"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Review the new startup entrypoint placement and keep runtime responsibilities separated."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Review that the startup simplification stays minimal and backend tooling remains discoverable."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Review that env loading and startup helpers are not duplicated."}

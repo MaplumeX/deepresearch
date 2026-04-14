@@ -63,12 +63,14 @@ BRAVE_API_KEY=your-brave-api-key
 
 如果你的兼容接口不要求鉴权，也可以只设置 `LLM_BASE_URL`。当前实现会在缺少 key 时传一个占位值，兼容很多 OpenAI-compatible 网关。
 
-注意：当前项目不会自动读取 `.env` 文件。启动前需要先把变量导入 shell：
+启动入口会自动读取项目根目录的 `.env` 文件，不需要再手动导入 shell。
+
+如果你需要自定义监听地址或关闭热更新，也可以在 `.env` 里补充这些可选项：
 
 ```bash
-set -a
-source .env
-set +a
+APP_HOST=127.0.0.1
+APP_PORT=8000
+APP_RELOAD=true
 ```
 
 ## 3. 启动服务
@@ -76,13 +78,25 @@ set +a
 先启动后端：
 
 ```bash
-uvicorn app.main:app --reload
+uv run deepresearch-api
 ```
 
 默认地址：
 
 ```text
 http://127.0.0.1:8000
+```
+
+如果你不是用 `uv`，而是已经通过虚拟环境安装了项目，也可以这样启动：
+
+```bash
+python -m app.cli
+```
+
+可选参数：
+
+```bash
+uv run deepresearch-api --host 0.0.0.0 --port 9000 --no-reload
 ```
 
 如果你要本地开发前端，再安装并启动 `web/`：

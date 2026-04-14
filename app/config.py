@@ -3,13 +3,44 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from functools import lru_cache
+from pathlib import Path
 
 
-def _read_bool(name: str, default: bool = False) -> bool:
+def read_bool_env(name: str, default: bool = False) -> bool:
     raw = os.getenv(name)
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def load_env_file(path: str | Path) -> bool:
+    env_path = Path(path)
+    if not env_path.is_file():
+        return False
+
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+
+        if line.startswith("export "):
+            line = line[7:].strip()
+
+        key, separator, value = line.partition("=")
+        if not separator:
+            continue
+
+        key = key.strip()
+        if not key:
+            continue
+
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+            value = value[1:-1]
+
+        os.environ.setdefault(key, value)
+
+    return True
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,7 +79,7 @@ def get_settings() -> Settings:
         default_max_iterations=int(os.getenv("DEFAULT_MAX_ITERATIONS", "2")),
         default_max_parallel_tasks=int(os.getenv("DEFAULT_MAX_PARALLEL_TASKS", "3")),
         search_max_results=int(os.getenv("SEARCH_MAX_RESULTS", "3")),
-        require_human_review=_read_bool("REQUIRE_HUMAN_REVIEW", False),
-        enable_llm_planning=_read_bool("ENABLE_LLM_PLANNING", True),
-        enable_llm_synthesis=_read_bool("ENABLE_LLM_SYNTHESIS", True),
+        require_human_review=read_bool_env("REQUIRE_HUMAN_REVIEW", False),
+        enable_llm_planning=read_bool_env("ENABLE_LLM_PLANNING", True),
+        enable_llm_synthesis=read_bool_env("ENABLE_LLM_SYNTHESIS", True),
     )

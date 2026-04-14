@@ -16,6 +16,7 @@ The backend is organized by responsibility, not by framework artifact type alone
 - `app/runtime.py` wires checkpoint persistence and graph execution
 - `app/run_store.py` persists run snapshots and history
 - `app/run_manager.py` owns async run lifecycle, background tasks, and SSE fan-out
+- `app/cli.py` exposes the backend startup entrypoint for local development and runtime launch
 
 This keeps orchestration logic explicit while avoiding tool code leaking into graph nodes.
 
@@ -37,6 +38,7 @@ app/
 │   └── subgraphs/
 ├── services/
 ├── tools/
+├── cli.py
 ├── run_manager.py
 ├── run_store.py
 ├── config.py
@@ -75,6 +77,7 @@ tests/
 ### Runtime Adapters
 
 - Put async task launch, SSE fan-out, and run persistence adapters in top-level runtime modules such as `app/run_manager.py` and `app/run_store.py`
+- Keep backend startup wiring in a top-level runtime module such as `app/cli.py`; do not bury process launch or env bootstrap logic inside API routes, services, or graph nodes
 - Keep these modules thin: they orchestrate infrastructure boundaries but should not duplicate graph logic or business rules from `app/services/`
 
 ---

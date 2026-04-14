@@ -22,6 +22,9 @@ dependencies = [
   "uvicorn>=0.30.0,<1.0.0",
 ]
 
+[project.scripts]
+deepresearch-api = "app.cli:main"
+
 [project.optional-dependencies]
 dev = [
   "pytest>=8.0.0,<9.0.0",
