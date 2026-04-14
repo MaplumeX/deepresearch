@@ -410,3 +410,44 @@ Added server-side conversation short-term memory with a recent five-run window, 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 10: Add frontend and backend lint checks
+
+**Date**: 2026-04-14
+**Task**: Add frontend and backend lint checks
+**Branch**: `master`
+
+### Summary
+
+Added repository lint entrypoints for Python and web, documented the workflow, and archived the completed lint task.
+
+### Main Changes
+
+| Area | Work |
+|------|------|
+| Backend tooling | Added `ruff` dev dependency and root lint configuration in `pyproject.toml` |
+| Frontend tooling | Added `web/eslint.config.js` and `npm run lint` in `web/package.json` |
+| Docs/spec | Updated README commands plus backend/frontend quality guidelines and spec indexes |
+| Code cleanup | Removed behavior-neutral lint findings in API schema and frontend summary mapping helpers |
+| Verification | Passed `uv run ruff check app tests`, `uv run pytest`, `npm run lint`, `npm run typecheck`, and `npm run test` |
+| Task tracking | Archived `04-14-setup-fullstack-lint-checks` after commit `b821d71` |
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b821d71` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

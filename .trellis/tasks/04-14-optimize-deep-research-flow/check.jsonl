@@ -1,0 +1,6 @@
+{"file": ".gemini/commands/trellis/finish-work.toml", "reason": "Finish work checklist"}
+{"file": ".gemini/commands/trellis/check.toml", "reason": "Code quality check spec"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Graph/services/tools responsibilities for backend workflow changes"}
+{"file": ".trellis/spec/backend/research-agent-runtime.md", "reason": "Runtime and graph state contract that this task will extend"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Deterministic fallbacks and explicit state contracts for graph changes"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross-layer contract checklist because graph state and memory extraction will change"}
