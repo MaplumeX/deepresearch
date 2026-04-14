@@ -74,7 +74,13 @@ export function ChatArea() {
     }
   }, [activeConversationParams?.messages, streamingAssistantPreview])
 
-  const messages = activeConversationParams?.messages || []
+  const allMessages = activeConversationParams?.messages || []
+  const lastMessage = allMessages[allMessages.length - 1]
+  const shouldHideLastPlaceholder = isGenerating
+    && lastMessage
+    && lastMessage.role === 'assistant'
+    && !lastMessage.content.trim()
+  const messages = shouldHideLastPlaceholder ? allMessages.slice(0, -1) : allMessages
 
   return (
     <ScrollArea className="flex-1 px-4 md:px-0 scroll-smooth">
