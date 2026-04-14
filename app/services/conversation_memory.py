@@ -12,6 +12,7 @@ from app.domain.models import (
     ResearchConversationDetail,
     ResearchRunDetail,
 )
+from app.services.research_quality import normalize_gaps
 
 
 DEFAULT_MEMORY_WINDOW = 5
@@ -143,7 +144,13 @@ def extract_open_questions(run: ResearchRunDetail) -> list[str]:
 
     questions: list[str] = []
     seen: set[str] = set()
-    for gap in raw_gaps:
+    normalized_gaps = normalize_gaps(raw_gaps)
+    if normalized_gaps:
+        gap_texts = [gap.title for gap in normalized_gaps]
+    else:
+        gap_texts = [str(gap) for gap in raw_gaps]
+
+    for gap in gap_texts:
         text = _trim_text(_normalize_space(str(gap)), 180)
         if not text:
             continue

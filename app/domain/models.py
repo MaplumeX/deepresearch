@@ -79,6 +79,40 @@ class ReportDraft(BaseModel):
     cited_source_ids: list[str]
 
 
+GapType = Literal["missing_evidence", "weak_evidence", "low_source_diversity", "retrieval_failure"]
+GapSeverity = Literal["low", "medium", "high"]
+TaskQualityStatus = Literal["ok", "weak", "failed"]
+
+
+class ResearchTaskOutcome(BaseModel):
+    task_id: str
+    title: str
+    quality_status: TaskQualityStatus
+    query_count: int = Field(default=0, ge=0)
+    search_hit_count: int = Field(default=0, ge=0)
+    acquired_content_count: int = Field(default=0, ge=0)
+    kept_source_count: int = Field(default=0, ge=0)
+    evidence_count: int = Field(default=0, ge=0)
+    host_count: int = Field(default=0, ge=0)
+    failure_reasons: list[str] = Field(default_factory=list)
+
+
+class ResearchGap(BaseModel):
+    gap_type: GapType
+    task_id: str
+    title: str
+    reason: str
+    retry_hint: str
+    severity: GapSeverity = "medium"
+
+
+class QualityGateResult(BaseModel):
+    passed: bool = True
+    should_replan: bool = False
+    requires_review: bool = False
+    reasons: list[str] = Field(default_factory=list)
+
+
 RunStatus = Literal["queued", "running", "interrupted", "completed", "failed"]
 RunEventType = Literal[
     "run.created",

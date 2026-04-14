@@ -9,7 +9,7 @@ from langgraph.types import Command
 from pydantic import BaseModel
 
 from app.config import get_settings
-from app.domain.models import ConversationMemoryPayload
+from app.domain.models import ConversationMemoryPayload, QualityGateResult
 from app.graph.builder import build_graph
 
 
@@ -23,9 +23,11 @@ def build_initial_state(
         "tasks": [],
         "raw_findings": [],
         "raw_source_batches": [],
+        "task_outcomes": [],
         "findings": [],
         "sources": {},
         "gaps": [],
+        "quality_gate": QualityGateResult().model_dump(),
         "warnings": [],
         "draft_report": "",
         "final_report": "",

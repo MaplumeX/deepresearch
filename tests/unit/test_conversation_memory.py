@@ -31,7 +31,16 @@ def _build_run(index: int) -> ResearchRunDetail:
                     "source_id": f"source-{index}",
                 }
             ],
-            "gaps": [f"Open question {index}"],
+            "gaps": [
+                {
+                    "gap_type": "weak_evidence",
+                    "task_id": f"iter-{index}-task-1",
+                    "title": f"Open question {index}",
+                    "reason": f"Need stronger evidence for question {index}",
+                    "retry_hint": f"Find another source for question {index}",
+                    "severity": "medium",
+                }
+            ],
         },
         warnings=[],
         error_message=None,

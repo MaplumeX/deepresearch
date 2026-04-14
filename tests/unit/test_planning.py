@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import importlib.util
 import unittest
+from unittest.mock import patch
 
 if importlib.util.find_spec("pydantic") is not None:
     from app.config import Settings
+    from app.graph.nodes.planner import plan_research
+    from app.domain.models import ResearchTask
     from app.services.planning import plan_research_tasks
 else:
     Settings = None
+    plan_research = None
+    ResearchTask = None
     plan_research_tasks = None
 
 
@@ -46,11 +51,21 @@ class PlanningServiceTest(unittest.TestCase):
     def test_gaps_are_translated_to_follow_up_tasks(self) -> None:
         tasks = plan_research_tasks(
             question="How do I build a deep research agent?",
-            gaps=["Need primary sources"],
+            gaps=[
+                {
+                    "gap_type": "retrieval_failure",
+                    "task_id": "iter-1-task-1",
+                    "title": "Recover search coverage for primary sources",
+                    "reason": "No ranked search results were available for this task.",
+                    "retry_hint": "Broaden the search framing and look for official or primary sources.",
+                    "severity": "high",
+                }
+            ],
             max_tasks=3,
             settings=self.settings,
         )
-        self.assertEqual(tasks[0].title, "Resolve gap: Need primary sources")
+        self.assertEqual(tasks[0].title, "Recover search coverage for primary sources")
+        self.assertIn("Retry hint:", tasks[0].question)
 
     def test_fallback_planner_includes_memory_context_in_task_question(self) -> None:
         tasks = plan_research_tasks(
@@ -74,6 +89,34 @@ class PlanningServiceTest(unittest.TestCase):
             },
         )
         self.assertIn("Conversation context:", tasks[0].question)
+
+    def test_planner_node_assigns_iteration_scoped_task_ids(self) -> None:
+        with patch("app.graph.nodes.planner.get_settings", return_value=self.settings), patch(
+            "app.graph.nodes.planner.plan_research_tasks",
+            return_value=[
+                ResearchTask(
+                    task_id="task-1",
+                    title="Recover search coverage",
+                    question="Q",
+                )
+            ],
+        ):
+            result = plan_research(
+                {
+                    "request": {
+                        "question": "How do I build a deep research agent?",
+                        "output_language": "en",
+                        "max_iterations": 3,
+                        "max_parallel_tasks": 2,
+                    },
+                    "gaps": [],
+                    "memory": {},
+                    "iteration_count": 1,
+                }
+            )
+
+        self.assertEqual(result["iteration_count"], 2)
+        self.assertEqual(result["tasks"][0]["task_id"], "iter-2-task-1")
 
 
 if __name__ == "__main__":

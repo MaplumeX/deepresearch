@@ -260,14 +260,57 @@ conversation_memory(
   "tasks": "list of research tasks",
   "raw_findings": "append-only list of worker evidence",
   "raw_source_batches": "append-only list of worker source maps",
+  "task_outcomes": "append-only list of per-task worker diagnostics for the current and earlier iterations",
   "findings": "deduplicated evidence list",
   "sources": "source_id -> source document",
-  "gaps": "list of follow-up research gaps",
+  "gaps": "list of structured follow-up research gaps",
+  "quality_gate": "quality-gate decision after merge + gap analysis",
   "warnings": "report validation warnings",
   "draft_report": "markdown draft",
   "final_report": "final markdown output",
   "iteration_count": "completed planning rounds",
   "review_required": "whether interrupt-based review is required"
+}
+```
+
+#### Worker Task Outcome Contract
+
+```json
+{
+  "task_id": "string",
+  "title": "task title",
+  "quality_status": "ok | weak | failed",
+  "query_count": "int >= 0",
+  "search_hit_count": "int >= 0",
+  "acquired_content_count": "int >= 0",
+  "kept_source_count": "int >= 0",
+  "evidence_count": "int >= 0",
+  "host_count": "int >= 0",
+  "failure_reasons": "list[str]"
+}
+```
+
+#### Research Gap Contract
+
+```json
+{
+  "gap_type": "missing_evidence | weak_evidence | low_source_diversity | retrieval_failure",
+  "task_id": "string",
+  "title": "short follow-up title",
+  "reason": "why the gap exists",
+  "retry_hint": "deterministic suggestion for the next planning round",
+  "severity": "low | medium | high"
+}
+```
+
+#### Quality Gate Contract
+
+```json
+{
+  "passed": "bool",
+  "should_replan": "bool",
+  "requires_review": "bool",
+  "reasons": "list[str], human-readable gate failures"
 }
 ```
 
@@ -328,11 +371,13 @@ REQUIRE_HUMAN_REVIEW     optional bool, defaults to false
 | follow-up manager -> memory builder | conversation detail, optional persisted conversation memory | build memory from the recent 5 runs; if the requested parent run falls outside the latest 5, force it into the window and recompute older summary on the fly | fall back to deterministic summary rebuild instead of dropping memory context |
 | run store -> detail/list API | `run_id` or conversation/list query | run must exist for detail/event routes; conversation must exist for conversation routes | return 404 when target run or conversation is missing |
 | ingest_request -> graph state | request payload + memory payload | Normalize integer budgets before Pydantic validation and normalize memory shape into explicit `rolling_summary/recent_turns/key_facts/open_questions` keys | Invalid request values are clamped first, then validated; missing memory fields become empty defaults |
-| planner -> tasks | question + gaps + memory | Limit task count to `max_parallel_tasks`; use memory only as continuity context, never as evidence | Fall back to deterministic task plan with contextual question text if the OpenAI-compatible model path is unavailable |
+| planner -> tasks | question + gaps + memory | Limit task count to `max_parallel_tasks`; assign iteration-scoped task ids such as `iter-2-task-1`; use memory only as continuity context, never as evidence | Fall back to deterministic task plan with structured gap title/reason/retry-hint when the OpenAI-compatible model path is unavailable |
 | task -> worker query rewrite | task question + request scope | Build at most 3 deduplicated queries for a single task | Fall back to deterministic query set without LLM |
 | search -> acquire content | provider search hits | Merge duplicate URLs, keep provider metadata, require non-empty URL | Skip invalid hits and tolerate per-provider search failures |
 | acquire content -> extract | provider raw content / fetched HTML / snippet fallback | Try provider raw content first, then HTTP fetch, then snippet fallback | Skip unusable content and continue with any surviving acquisition path |
 | extract -> evidence scoring | normalized source documents | Drop short or weak pages, choose a focused snippet, and compute bounded `relevance_score` / `confidence` | Skip sources that do not meet the deterministic relevance floor |
+| worker -> task outcome | task, queries, ranked hits, acquired contents, kept sources, evidence | derive deterministic quality diagnostics from counts and host diversity | never throw because evidence is weak; emit `quality_status=weak/failed` and failure reasons instead |
+| merge -> gap_check | deduplicated findings + `task_outcomes` + current task list | create structured gaps and evaluate quality gate before synthesis | if gate fails and iteration budget remains, replan; if budget is exhausted, continue to synthesis with warnings and force human review |
 | synthesize -> audit | markdown report + memory | Require citations to map to existing `sources`; memory may appear only in a background section and may not introduce citations | Set warning and require review when unknown citation ids exist |
 | run persistence -> conversation thread | run lifecycle updates | assistant message content mirrors final report, draft report, or failure text for the linked run | keep assistant placeholder empty while queued/running; update assistant message content on interrupt/completion/failure |
 | terminal run -> conversation memory store | conversation detail after completion/interruption/failure | persist summary/facts/questions for turns outside the recent 5-run window | write empty memory payload when the conversation has 5 or fewer runs instead of skipping the row |
@@ -355,6 +400,10 @@ REQUIRE_HUMAN_REVIEW     optional bool, defaults to false
 - Tavily and Brave can both contribute hits for the same worker task.
 - Provider raw content is used when available; HTTP fetch and snippet fallback cover the rest.
 - Evidence scoring keeps only relevant sources and emits bounded scores.
+- Worker emits task diagnostics even when a task produces zero findings.
+- `gap_check` emits structured gaps with retry hints instead of opaque strings.
+- If research quality is weak and iteration budget remains, the graph loops back to `plan_research`.
+- If research quality is weak and budget is exhausted, synthesis still runs but the final run is forced through human review.
 - Synthesis emits markdown with valid `[source_id]` citations.
 - Audit passes without unknown citations.
 - Detail API and SSE stream both reflect the same terminal snapshot, including the updated assistant message and conversation summary.
@@ -364,6 +413,7 @@ REQUIRE_HUMAN_REVIEW     optional bool, defaults to false
 - Planner and synthesizer fall back to deterministic logic while still receiving conversation memory.
 - Worker query rewrite, ranking, filtering, and scoring still run deterministically without model access.
 - One search provider may be unavailable and the graph still completes from the surviving provider or with an empty-evidence report.
+- Legacy string-shaped `gaps` in older run snapshots still degrade to readable open questions in conversation memory.
 - Installed `aiosqlite` may omit `Connection.is_alive()` while checkpoint persistence still succeeds through the runtime compatibility shim.
 - Legacy runs that predate conversation support are backfilled to synthetic one-run conversations on initialization.
 - Browser refreshes during a running job and the frontend restores state via detail API before reopening SSE.
@@ -378,6 +428,7 @@ REQUIRE_HUMAN_REVIEW     optional bool, defaults to false
 - Report cites a source id that is not present in `sources`.
 - Both providers fail or return unusable hits for all queries.
 - Provider raw content, HTTP fetch, and snippet fallback all fail or stay too weak for evidence extraction.
+- Replanning reuses bare `task-1` ids across iterations and mixes old findings with new follow-up tasks.
 - Client attempts to resume a completed run.
 - Server restarts while queued/running jobs exist and leaves stale statuses unmarked.
 
@@ -386,10 +437,11 @@ REQUIRE_HUMAN_REVIEW     optional bool, defaults to false
 - Unit test `app/services/citations.py` for citation extraction and missing citation detection.
 - Unit test `app/services/dedupe.py` for duplicate-evidence selection.
 - Unit test `app/services/research_worker.py` for query rewrite, cross-provider search-hit ranking, content filtering, and evidence scoring.
+- Unit test `app/services/research_quality.py` for task diagnostics, structured gap mapping, and quality-gate decisions.
 - Unit test `app/tools/extract.py` for provider-aware content normalization.
-- Unit test `app/graph/nodes/gap_check.py` for missing-task and corroboration gaps.
+- Unit test `app/graph/nodes/gap_check.py` for structured-gap output, replan routing, and review-on-budget-exhaustion behavior.
 - Unit test deterministic planning fallback when model credentials are absent.
-- Unit test `app/services/conversation_memory.py` for recent-5 windowing, parent-run inclusion, digest building, and persisted older-summary generation.
+- Unit test `app/services/conversation_memory.py` for recent-5 windowing, parent-run inclusion, digest building, persisted older-summary generation, and structured-gap open-question extraction.
 - Unit test `app/run_store.py` for persisted conversation threading, assistant message synchronization, and legacy linkage backfill.
 - Unit test `app/run_store.py` for `conversation_memory` read/write behavior.
 - Unit test `app/run_manager.py` for async lifecycle transitions, follow-up turn creation, memory injection, and resume rules.
@@ -455,8 +507,38 @@ async def create_message(
         title=None,
         parent_run_id=parent_run_id,
         memory_context=memory.model_dump(),
-    )
+)
     return conversation, run
 ```
+
+#### Wrong: String-Only Gap Loop
+
+```python
+def gap_check(state: dict) -> dict:
+    gaps = []
+    if not state["findings"]:
+        gaps.append("Need more evidence")
+    return {"gaps": gaps}
+```
+
+- Problem: downstream planning cannot distinguish missing search coverage, acquisition failure, weak evidence, or low corroboration, so every retry looks the same.
+
+#### Correct: Structured Gaps With Quality Gate
+
+```python
+def gap_check(state: dict) -> dict:
+    gaps = identify_research_gaps(tasks, task_outcomes)
+    quality_gate = evaluate_quality_gate(
+        gaps,
+        has_iteration_budget=iteration_count < request.max_iterations,
+    )
+    return {
+        "gaps": [gap.model_dump() for gap in gaps],
+        "quality_gate": quality_gate.model_dump(),
+        "review_required": quality_gate.requires_review,
+    }
+```
+
+- Reason: structured gaps preserve failure semantics for re-planning, while the quality gate makes the replan-vs-review decision explicit and testable.
 
 - Reason: follow-up execution keeps stable thread identity and injects explicit short-term memory into the new run without changing public API payloads.

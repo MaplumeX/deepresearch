@@ -4,8 +4,9 @@ from typing import TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from app.config import get_settings
 from app.domain.models import AcquiredContent, ResearchRequest, ResearchTask, SearchHit, SourceDocument
+from app.config import get_settings
+from app.services.research_quality import build_task_outcome
 from app.services.research_worker import build_task_evidence, filter_acquired_contents, rank_search_hits, rewrite_queries
 from app.tools.extract import extract_sources
 from app.tools.fetch import acquire_contents
@@ -22,6 +23,7 @@ class ResearchWorkerState(TypedDict, total=False):
     findings: list[dict]
     raw_findings: list[dict]
     raw_source_batches: list[dict[str, dict]]
+    task_outcomes: list[dict]
 
 
 def _task_from_state(state: ResearchWorkerState) -> ResearchTask:
@@ -69,18 +71,33 @@ def extract_and_score_node(state: ResearchWorkerState) -> dict:
 
 
 def emit_results_node(state: ResearchWorkerState) -> dict:
+    task = _task_from_state(state)
+    queries = list(state.get("queries", []))
+    search_hits = [SearchHit.model_validate(item) for item in state.get("search_hits", [])]
+    acquired_contents = [AcquiredContent.model_validate(item) for item in state.get("acquired_contents", [])]
     findings = list(state.get("findings", []))
     sources = [SourceDocument.model_validate(item) for item in state.get("sources", [])]
+    task_outcome = build_task_outcome(
+        task,
+        query_count=len(queries),
+        search_hit_count=len(search_hits),
+        acquired_content_count=len(acquired_contents),
+        kept_source_count=len(sources),
+        evidence_count=len(findings),
+        source_urls=[source.url for source in sources],
+    )
     if not findings and not sources:
         return {
             "raw_findings": [],
             "raw_source_batches": [],
+            "task_outcomes": [task_outcome.model_dump()],
         }
     return {
         "raw_findings": findings,
         "raw_source_batches": [
             {source.source_id: source.model_dump() for source in sources}
         ],
+        "task_outcomes": [task_outcome.model_dump()],
     }
 
 
@@ -114,4 +131,5 @@ async def research_worker(state: dict) -> dict:
     return {
         "raw_findings": result.get("raw_findings", []),
         "raw_source_batches": result.get("raw_source_batches", []),
+        "task_outcomes": result.get("task_outcomes", []),
     }

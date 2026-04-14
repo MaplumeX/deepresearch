@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.config import get_settings
+from app.domain.models import QualityGateResult
 from app.services.citations import find_missing_citations, has_citations
 
 
@@ -20,9 +21,15 @@ def citation_audit(state: dict) -> dict:
         warnings.append(f"Draft report references unknown citations: {', '.join(missing)}")
 
     settings = get_settings()
+    quality_gate = QualityGateResult.model_validate(state.get("quality_gate", {}))
     return {
         "warnings": warnings,
-        "review_required": bool(missing) or settings.require_human_review,
+        "review_required": (
+            bool(state.get("review_required", False))
+            or quality_gate.requires_review
+            or bool(missing)
+            or settings.require_human_review
+        ),
     }
 
 
@@ -30,4 +37,3 @@ def after_audit(state: dict) -> str:
     if state.get("review_required"):
         return "human_review"
     return "finalize"
-
