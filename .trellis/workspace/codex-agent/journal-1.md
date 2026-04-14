@@ -451,3 +451,50 @@ Added repository lint entrypoints for Python and web, documented the workflow, a
 ### Next Steps
 
 - None - task complete
+
+
+## Session 11: Add structured research quality gate and replanning loop
+
+**Date**: 2026-04-14
+**Task**: Add structured research quality gate and replanning loop
+**Branch**: `master`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Research quality | Added structured `ResearchTaskOutcome`, `ResearchGap`, and `QualityGateResult` contracts to support deterministic quality gating and replanning. |
+| Graph flow | Updated worker output, `gap_check`, planner task ids, ingest/runtime state, and audit handling so weak research loops back to planning when budget remains and forces review when budget is exhausted. |
+| Memory and planning | Switched planning to consume structured gaps with retry hints and kept conversation memory compatible with legacy string-shaped gaps. |
+| Verification | Added focused unit tests for quality rules, replanning behavior, conversation memory extraction, and regression coverage for iteration-scoped task ids. |
+| Spec sync | Updated backend runtime spec with the new graph state, gap, task outcome, quality gate, validation matrix, and test requirements. |
+
+**Verification**:
+- `python3 -m compileall app tests`
+- `uv run pytest tests/unit/test_research_quality.py tests/unit/test_gap_check.py tests/unit/test_planning.py tests/unit/test_conversation_memory.py tests/unit/test_research_worker_service.py tests/unit/test_synthesis.py tests/unit/test_run_manager.py tests/unit/test_run_store.py tests/unit/test_runtime.py`
+
+**Notes**:
+- `lint` / `typecheck` could not be completed because the repository currently has no runnable Python lint/typecheck toolchain configured in `pyproject.toml`.
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c1b1d2b` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
