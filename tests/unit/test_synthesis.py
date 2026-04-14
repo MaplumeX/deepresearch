@@ -31,8 +31,26 @@ class SynthesisServiceTest(unittest.TestCase):
         report = synthesize_report(
             question="Can you continue this analysis?",
             tasks=[{"task_id": "task-1", "title": "Topic"}],
-            findings=[{"task_id": "task-1", "claim": "Fact", "source_id": "source-1"}],
-            sources={"source-1": {"title": "Source", "url": "https://example.com"}},
+            findings=[
+                {
+                    "task_id": "task-1",
+                    "claim": "Fact",
+                    "snippet": "Fact",
+                    "source_id": "Ssource001",
+                    "confidence": 0.8,
+                    "relevance_score": 0.7,
+                }
+            ],
+            sources={
+                "Ssource001": {
+                    "title": "Source",
+                    "url": "https://example.com",
+                    "content": "Fact",
+                    "providers": ["tavily"],
+                    "acquisition_method": "http_fetch",
+                    "fetched_at": "2026-04-14T08:00:00+00:00",
+                }
+            },
             settings=self.settings,
             memory={
                 "rolling_summary": "Earlier turns narrowed the scope to runtime memory.",
@@ -42,8 +60,14 @@ class SynthesisServiceTest(unittest.TestCase):
             },
         )
 
+        self.assertEqual(report.title, "Research Report")
         self.assertIn("## Conversation Context", report.markdown)
         self.assertIn("Not a citation source", report.markdown)
+        self.assertEqual(report.cited_source_ids, ["Ssource001"])
+        self.assertEqual(report.citation_index[0].source_id, "Ssource001")
+        self.assertEqual(report.source_cards[0].source_id, "Ssource001")
+        self.assertEqual(report.sections[0].heading, "Executive Summary")
+        self.assertEqual(report.sections[1].heading, "Conversation Context")
 
 
 if __name__ == "__main__":

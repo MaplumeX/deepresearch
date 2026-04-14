@@ -32,7 +32,9 @@ def ingest_request(state: dict) -> dict:
         "quality_gate": quality_gate.model_dump(),
         "warnings": state.get("warnings", []),
         "draft_report": state.get("draft_report", ""),
+        "draft_structured_report": state.get("draft_structured_report", {}),
         "final_report": state.get("final_report", ""),
+        "final_structured_report": state.get("final_structured_report", {}),
         "iteration_count": state.get("iteration_count", 0),
         "review_required": state.get("review_required", False),
     }

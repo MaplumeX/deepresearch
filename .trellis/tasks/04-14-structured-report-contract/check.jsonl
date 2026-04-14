@@ -1,0 +1,4 @@
+{"file": ".gemini/commands/trellis/finish-work.toml", "reason": "Finish work checklist"}
+{"file": ".gemini/commands/trellis/check.toml", "reason": "Code quality check spec"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify citation/state changes remain auditable and deterministic."}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Verify run result access stays typed and backward compatible."}

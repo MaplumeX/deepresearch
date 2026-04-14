@@ -41,6 +41,8 @@ Questions to answer:
 - Wrap API envelopes such as `{ run }`, `{ runs }`, and `{ conversation }` in explicit interfaces
 - Model thread data as `conversation + messages + runs`; avoid flattening assistant content into ad-hoc component props
 - Convert `run.result` access through small helper functions when fields are optional or heterogeneous
+- Mirror evolving report payloads in `web/src/types/research.ts` with explicit interfaces such as `StructuredReport` and `ResearchRunResult`
+- Put report decoding and backward-compatibility fallbacks in `web/src/lib/` helpers instead of branching over raw nested payloads inside route components
 
 ---
 

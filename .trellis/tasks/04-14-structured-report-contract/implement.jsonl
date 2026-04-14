@@ -1,0 +1,9 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Keep report contract and audit logic in the correct backend layers."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Preserve deterministic synthesis fallback and keep reusable logic in services."}
+{"file": ".trellis/spec/backend/research-agent-runtime.md", "reason": "Update report/result contracts safely across runtime and API layers."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Keep frontend quality entry points and explicit summary mapping intact."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "This report contract change spans backend state, API serialization, and frontend rendering."}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Mirror backend report contract in shared frontend types."}

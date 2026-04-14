@@ -4,17 +4,16 @@ from collections import defaultdict
 from typing import Any
 
 from app.config import Settings
-from app.domain.models import ReportDraft
+from app.domain.models import ReportDraft, ReportSectionDraft, StructuredReport
 from app.services.conversation_memory import format_memory_for_prompt
 from app.services.llm import build_chat_model, can_use_llm
+from app.services.report_contract import build_structured_report
 
 
-def _fallback_markdown(
+def _fallback_report(
     question: str,
     tasks: list[dict],
     findings: list[dict],
-    sources: dict[str, dict],
-    memory: dict[str, Any] | None,
 ) -> ReportDraft:
     grouped: dict[str, list[dict]] = defaultdict(list)
     titles = {task["task_id"]: task["title"] for task in tasks}
@@ -27,38 +26,32 @@ def _fallback_markdown(
         for item in summary_claims
     ] or ["- No evidence was collected yet."]
 
-    body_sections: list[str] = []
+    analysis_sections: list[ReportSectionDraft] = []
     for task in tasks:
         task_findings = grouped.get(task["task_id"], [])
         lines = [
             f"- {item['claim']} [{item['source_id']}]"
             for item in task_findings
         ] or ["- No evidence collected for this task."]
-        section = "\n".join([f"## {titles[task['task_id']]}", *lines])
-        body_sections.append(section)
+        analysis_sections.append(
+            ReportSectionDraft(
+                heading=titles[task["task_id"]],
+                body_markdown="\n".join(lines),
+            )
+        )
 
-    source_lines = [
-        f"- [{source_id}] {source['title']} - {source['url']}"
-        for source_id, source in sorted(sources.items())
-    ] or ["- No sources available."]
+    if not tasks:
+        analysis_sections.append(
+            ReportSectionDraft(
+                heading="Analysis",
+                body_markdown=f"Question: {question}",
+            )
+        )
 
-    sections = [f"# Research Report\n\nQuestion: {question}"]
-    memory_section = _build_memory_section(memory)
-    if memory_section:
-        sections.append(memory_section)
-    sections.extend(
-        [
-            "## Executive Summary\n" + "\n".join(summary_lines),
-            *body_sections,
-            "## Sources\n" + "\n".join(source_lines),
-        ]
-    )
-    markdown = "\n\n".join(sections)
     return ReportDraft(
         title="Research Report",
         summary="\n".join(summary_lines),
-        markdown=markdown,
-        cited_source_ids=sorted({item["source_id"] for item in findings}),
+        sections=analysis_sections,
     )
 
 
@@ -85,10 +78,11 @@ def _maybe_synthesize_with_llm(
         [
             (
                 "system",
-                "You synthesize cited markdown reports from validated evidence. "
+                "You synthesize structured cited reports from validated evidence. "
                 "Conversation memory is background context only. "
                 "Never use conversation memory as a citation source. "
-                "Keep all citations in the form [source_id].",
+                "Keep all factual citations in the form [source_id]. "
+                "Return analysis sections only. Do not include a sources appendix.",
             ),
             (
                 "human",
@@ -98,6 +92,8 @@ def _maybe_synthesize_with_llm(
                 "Known facts from older turns:\n{key_facts}\n\n"
                 "Open questions from older turns:\n{open_questions}\n\n"
                 "Current tasks:\n{tasks}\n\nFindings:\n{findings}\n\nSources:\n{sources}\n\n"
+                "Write concise but well-structured analysis sections in markdown. "
+                "Use inline citations on factual claims. "
                 "{format_instructions}",
             ),
         ]
@@ -129,11 +125,12 @@ def synthesize_report(
     sources: dict[str, dict],
     settings: Settings,
     memory: dict[str, Any] | None = None,
-) -> ReportDraft:
+) -> StructuredReport:
     drafted = _maybe_synthesize_with_llm(question, tasks, findings, sources, settings, memory)
-    if drafted:
-        return drafted
-    return _fallback_markdown(question, tasks, findings, sources, memory)
+    if drafted is None:
+        drafted = _fallback_report(question, tasks, findings)
+    drafted = _ensure_memory_section(drafted, memory)
+    return build_structured_report(drafted, sources=sources, findings=findings)
 
 
 def _build_memory_section(memory: dict[str, Any] | None) -> str:
@@ -142,11 +139,29 @@ def _build_memory_section(memory: dict[str, Any] | None) -> str:
         return ""
     return "\n".join(
         [
-            "## Conversation Context",
             "_Background only. Not a citation source._",
             f"Earlier context:\n{memory_sections['rolling_summary']}",
             f"Recent 5 turns:\n{memory_sections['recent_turns']}",
             f"Older key facts:\n{memory_sections['key_facts']}",
             f"Open questions:\n{memory_sections['open_questions']}",
         ]
+    )
+
+
+def _ensure_memory_section(draft: ReportDraft, memory: dict[str, Any] | None) -> ReportDraft:
+    memory_section = _build_memory_section(memory)
+    if not memory_section:
+        return draft
+    if any(section.heading == "Conversation Context" for section in draft.sections):
+        return draft
+    return ReportDraft(
+        title=draft.title,
+        summary=draft.summary,
+        sections=[
+            ReportSectionDraft(
+                heading="Conversation Context",
+                body_markdown=memory_section,
+            ),
+            *draft.sections,
+        ],
     )

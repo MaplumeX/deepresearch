@@ -17,6 +17,8 @@ class GraphState(TypedDict, total=False):
     quality_gate: dict
     warnings: list[str]
     draft_report: str
+    draft_structured_report: dict
     final_report: str
+    final_structured_report: dict
     iteration_count: int
     review_required: bool

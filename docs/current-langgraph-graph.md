@@ -243,11 +243,13 @@ flowchart TD
 
 - 调用 `app/services/synthesis.py` 中的 `synthesize_report()`
 - 将报告 markdown 写入 `draft_report`
+- 将结构化报告写入 `draft_structured_report`
 
 特点：
 
 - 与 planner 类似，也有 LLM 和 fallback 双路径
-- fallback 会基于 `tasks`、`findings`、`sources` 拼出确定性的 markdown
+- fallback 先构造结构化 sections，再统一渲染 markdown
+- 最终报告除了 markdown，还包含 citation index 与 source cards
 
 ### 4.9 `citation_audit`
 
@@ -258,6 +260,8 @@ flowchart TD
 - 检查 `draft_report` 是否为空
 - 若存在 findings，检查是否包含内联引用
 - 校验引用的 `source_id` 是否都存在于 `sources`
+- 校验结构化 sections 是否存在、摘要/正文是否覆盖 citation
+- 校验 `citation_index` 是否与 `cited_source_ids` 同步
 - 产出：
   - `warnings`
   - `review_required`
@@ -271,6 +275,7 @@ flowchart TD
 
 - 人审触发条件有两类：
   - 出现未知 citation
+  - 结构化报告章节缺失必要 citation 或 citation index 漂移
   - 环境配置 `REQUIRE_HUMAN_REVIEW=true`
 
 ### 4.10 `human_review`
@@ -283,6 +288,7 @@ flowchart TD
 - 把以下内容暴露给外部恢复方：
   - `kind: "human_review"`
   - `draft_report`
+  - `draft_structured_report`
   - `warnings`
 - 在 resume 时接收外部输入
 
@@ -290,8 +296,10 @@ flowchart TD
 
 - 默认 `final_report = draft_report`
 - 如果 resume payload 是字典，则尝试读取 `edited_report`
+- 若发生人工编辑，则基于编辑后的 markdown 重新生成 `final_structured_report`
 - 写回：
   - `final_report`
+  - `final_structured_report`
   - `review_required = False`
 
 特点：
@@ -307,6 +315,7 @@ flowchart TD
 
 - 若已有 `final_report` 就直接返回
 - 否则回退到 `draft_report`
+- 同步确保 `final_structured_report` 存在，默认回退到 `draft_structured_report`
 
 特点：
 

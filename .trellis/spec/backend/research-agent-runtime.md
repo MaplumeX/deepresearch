@@ -122,6 +122,99 @@ def emit_results_node(state: dict) -> dict
 }
 ```
 
+`result` keeps the raw graph snapshot. For report-centric consumers, the stable fields are:
+
+```json
+{
+  "draft_report": "markdown draft for compatibility and conversation history",
+  "draft_structured_report": {
+    "title": "string",
+    "summary": "markdown summary block",
+    "markdown": "rendered markdown assembled from structured sections",
+    "sections": [
+      {
+        "section_id": "stable slug",
+        "heading": "section heading",
+        "body_markdown": "section markdown body",
+        "cited_source_ids": "ordered citation ids used in this section"
+      }
+    ],
+    "cited_source_ids": "ordered citation ids used in evidence-bearing sections",
+    "citation_index": [
+      {
+        "source_id": "string",
+        "title": "string",
+        "url": "string",
+        "snippet": "best evidence or source snippet",
+        "providers": "list[str]",
+        "acquisition_method": "provider_raw_content | http_fetch | search_snippet | null",
+        "cited_in_sections": "list[str] of section ids",
+        "occurrence_count": "int >= 0",
+        "relevance_score": "float 0..1 or null",
+        "confidence": "float 0..1 or null"
+      }
+    ],
+    "source_cards": [
+      {
+        "source_id": "string",
+        "title": "string",
+        "url": "string",
+        "snippet": "best evidence or source snippet",
+        "providers": "list[str]",
+        "acquisition_method": "provider_raw_content | http_fetch | search_snippet | null",
+        "fetched_at": "ISO-8601 timestamp or empty string",
+        "is_cited": "bool"
+      }
+    ]
+  },
+  "final_report": "final markdown output after optional human review",
+  "final_structured_report": "same shape as draft_structured_report, regenerated if a human edits the markdown"
+}
+```
+
+Implementation path for the structured report contract:
+
+- `app/services/synthesis.py::synthesize_report()` builds the report draft and delegates final normalization.
+- `app/services/report_contract.py::build_structured_report()` is the canonical constructor for `draft_structured_report`.
+- `app/services/report_contract.py::derive_structured_report()` is the canonical recovery path when human review edits raw markdown.
+- `app/graph/nodes/synthesize.py::synthesize_report_node()` writes `draft_report` and `draft_structured_report`.
+- `app/graph/nodes/audit.py::citation_audit()` validates markdown + structured-report consistency.
+- `app/graph/nodes/review.py::human_review()` regenerates `final_structured_report` from edited markdown.
+- `web/src/types/research.ts` mirrors the backend payload shape.
+- `web/src/lib/report.ts` is the frontend boundary for reading and linkifying report payloads.
+
+Structured report validation and error matrix:
+
+| Condition | Validation point | Warning / behavior | Review required |
+|-----------|------------------|--------------------|-----------------|
+| `draft_report` is empty | `app/graph/nodes/audit.py::citation_audit()` | append `Draft report is empty.` | No by itself; escalates only if another gate also fails |
+| findings exist but markdown has no `[S...]` citation | `has_citations(draft_report)` in `citation_audit()` | append `Draft report does not include inline citations.` | Yes in practice, because section-level citation validation also fails |
+| markdown references a `source_id` not present in `sources` | `find_missing_citations(draft_report, sources)` | append `Draft report references unknown citations: ...` | Yes |
+| structured report has no sections while findings exist | `_validate_structured_report()` in `citation_audit()` | append `Structured report does not include any sections.` | Yes |
+| `Executive Summary` exists but has no citation | `_validate_structured_report()` in `citation_audit()` | append `Executive summary does not include inline citations.` | Yes |
+| non-background analysis section has content but no citation | `_validate_structured_report()` in `citation_audit()` | append `Section '<heading>' does not include inline citations.` | Yes |
+| `cited_source_ids` and `citation_index[*].source_id` diverge | `_validate_structured_report()` in `citation_audit()` | append `Structured report citation index is out of sync with cited sources.` | Yes |
+
+Good / Base / Bad cases for this contract:
+
+- Good:
+  `synthesize_report_node()` produces `draft_report` plus `draft_structured_report`, every evidence-bearing section contains `[S...]`, and `citation_index` / `source_cards` reflect the same cited sources.
+- Base:
+  Human review edits markdown via `edited_report`; `human_review()` accepts the markdown and rebuilds `final_structured_report` with `derive_structured_report()` so the final payload is still structured.
+- Bad:
+  Markdown includes `"[Sdeadbeef]"` that does not exist in `sources`, or an analysis section omits citations while findings exist; `citation_audit()` must append warnings and set `review_required = True`.
+
+Required tests and assertion points for this contract:
+
+- `tests/unit/test_synthesis.py`
+  Assert synthesis output includes `markdown`, `sections`, `citation_index`, and `source_cards`.
+- `tests/unit/test_audit.py`
+  Assert missing section citations trigger warnings and `review_required = True`.
+- `web/src/lib/report.test.ts`
+  Assert frontend readers decode structured payloads and linkify inline citations.
+- `web/src/components/StructuredReportView.test.tsx`
+  Assert the detail UI renders sections, source anchors, and cited source cards from the structured payload.
+
 #### Conversation Message Contract
 
 ```json
@@ -267,7 +360,9 @@ conversation_memory(
   "quality_gate": "quality-gate decision after merge + gap analysis",
   "warnings": "report validation warnings",
   "draft_report": "markdown draft",
+  "draft_structured_report": "structured report draft aligned with draft_report",
   "final_report": "final markdown output",
+  "final_structured_report": "structured report aligned with final_report",
   "iteration_count": "completed planning rounds",
   "review_required": "whether interrupt-based review is required"
 }

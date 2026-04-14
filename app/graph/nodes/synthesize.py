@@ -15,4 +15,5 @@ def synthesize_report_node(state: dict) -> dict:
     )
     return {
         "draft_report": report.markdown,
+        "draft_structured_report": report.model_dump(),
     }

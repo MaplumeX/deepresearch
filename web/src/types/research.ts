@@ -26,6 +26,54 @@ export interface ResumeRequest {
   edited_report?: string;
 }
 
+export interface ReportSection {
+  section_id: string;
+  heading: string;
+  body_markdown: string;
+  cited_source_ids: string[];
+}
+
+export interface CitationIndexEntry {
+  source_id: string;
+  title: string;
+  url: string;
+  snippet: string;
+  providers: string[];
+  acquisition_method?: string;
+  cited_in_sections: string[];
+  occurrence_count: number;
+  relevance_score?: number;
+  confidence?: number;
+}
+
+export interface SourceCard {
+  source_id: string;
+  title: string;
+  url: string;
+  snippet: string;
+  providers: string[];
+  acquisition_method?: string;
+  fetched_at: string;
+  is_cited: boolean;
+}
+
+export interface StructuredReport {
+  title: string;
+  summary: string;
+  markdown: string;
+  sections: ReportSection[];
+  cited_source_ids: string[];
+  citation_index: CitationIndexEntry[];
+  source_cards: SourceCard[];
+}
+
+export interface ResearchRunResult extends Record<string, unknown> {
+  draft_report?: string;
+  final_report?: string;
+  draft_structured_report?: StructuredReport;
+  final_structured_report?: StructuredReport;
+}
+
 export interface ResearchRun {
   run_id: string;
   conversation_id: string;
@@ -34,7 +82,7 @@ export interface ResearchRun {
   parent_run_id: string | null;
   status: RunStatus;
   request: RunRequest;
-  result: Record<string, unknown> | null;
+  result: ResearchRunResult | null;
   warnings: string[];
   error_message: string | null;
   created_at: string;

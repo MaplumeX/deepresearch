@@ -6,7 +6,9 @@ import { useRunEvents } from "../hooks/useRunEvents";
 import { useResumeRunMutation, useRunQuery } from "../hooks/useResearchRuns";
 import { isTerminalStatus } from "../lib/runs";
 import { ReviewPanel } from "../components/ReviewPanel";
+import { StructuredReportView } from "../components/StructuredReportView";
 import { StatusPill } from "../components/StatusPill";
+import { readReportField, readStructuredReport } from "../lib/report";
 
 export function RunDetailPage() {
   const { runId = "" } = useParams();
@@ -26,8 +28,9 @@ export function RunDetailPage() {
     return <div className="panel error-panel">无法加载 run 详情。</div>;
   }
 
-  const draftReport = readResultField(run.result, "draft_report");
-  const finalReport = readResultField(run.result, "final_report");
+  const draftReport = readReportField(run.result, "draft_report");
+  const finalReport = readReportField(run.result, "final_report");
+  const structuredReport = readStructuredReport(run.result);
   const report = finalReport || draftReport || "当前还没有可展示的报告内容。";
   const warnings = run.warnings ?? [];
 
@@ -81,9 +84,13 @@ export function RunDetailPage() {
               <h2>研究报告</h2>
               <span className="thread-meta">{reportVersionLabel(finalReport, draftReport)}</span>
             </div>
-            <div className="report-markdown">
-              <ReactMarkdown>{report}</ReactMarkdown>
-            </div>
+            {structuredReport ? (
+              <StructuredReportView report={structuredReport} />
+            ) : (
+              <div className="report-markdown fallback-report">
+                <ReactMarkdown>{report}</ReactMarkdown>
+              </div>
+            )}
           </article>
 
           {run.status === "interrupted" ? (
@@ -163,17 +170,6 @@ export function RunDetailPage() {
       </div>
     </div>
   );
-}
-
-function asString(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
-function readResultField(result: Record<string, unknown> | null, key: string): string {
-  if (!result) {
-    return "";
-  }
-  return asString(result[key]);
 }
 
 function reportVersionLabel(finalReport: string, draftReport: string): string {

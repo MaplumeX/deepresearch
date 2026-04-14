@@ -72,11 +72,56 @@ class Evidence(BaseModel):
     confidence: float = Field(default=0.5, ge=0, le=1)
 
 
-class ReportDraft(BaseModel):
+class ReportSectionDraft(BaseModel):
+    heading: str
+    body_markdown: str
+
+
+class ReportSection(BaseModel):
+    section_id: str
+    heading: str
+    body_markdown: str
+    cited_source_ids: list[str] = Field(default_factory=list)
+
+
+class CitationIndexEntry(BaseModel):
+    source_id: str
+    title: str
+    url: str
+    snippet: str = ""
+    providers: list[str] = Field(default_factory=list)
+    acquisition_method: AcquisitionMethod | None = None
+    cited_in_sections: list[str] = Field(default_factory=list)
+    occurrence_count: int = Field(default=0, ge=0)
+    relevance_score: float | None = Field(default=None, ge=0, le=1)
+    confidence: float | None = Field(default=None, ge=0, le=1)
+
+
+class SourceCard(BaseModel):
+    source_id: str
+    title: str
+    url: str
+    snippet: str = ""
+    providers: list[str] = Field(default_factory=list)
+    acquisition_method: AcquisitionMethod | None = None
+    fetched_at: str = ""
+    is_cited: bool = False
+
+
+class StructuredReport(BaseModel):
     title: str
     summary: str
     markdown: str
+    sections: list[ReportSection] = Field(default_factory=list)
     cited_source_ids: list[str]
+    citation_index: list[CitationIndexEntry] = Field(default_factory=list)
+    source_cards: list[SourceCard] = Field(default_factory=list)
+
+
+class ReportDraft(BaseModel):
+    title: str
+    summary: str
+    sections: list[ReportSectionDraft] = Field(default_factory=list)
 
 
 GapType = Literal["missing_evidence", "weak_evidence", "low_source_diversity", "retrieval_failure"]

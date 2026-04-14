@@ -30,7 +30,9 @@ def build_initial_state(
         "quality_gate": QualityGateResult().model_dump(),
         "warnings": [],
         "draft_report": "",
+        "draft_structured_report": {},
         "final_report": "",
+        "final_structured_report": {},
         "iteration_count": 0,
         "review_required": False,
     }

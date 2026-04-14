@@ -642,9 +642,326 @@ textarea:focus {
   font-size: 0.9rem;
 }
 
+.workspace-page {
+  min-height: 100dvh;
+  padding: 1.75rem 2rem 2rem;
+}
+
+.detail-page {
+  width: min(1320px, 100%);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.workspace-heading,
+.thread-card-header,
+.side-panel-header,
+.detail-heading-body,
+.structured-report,
+.report-section,
+.report-sources,
+.source-card,
+.event-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace-heading,
+.thread-card,
+.side-panel,
+.warning-panel,
+.report-section,
+.report-sources,
+.source-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.workspace-heading,
+.thread-card,
+.side-panel {
+  padding: 1rem 1.1rem;
+}
+
+.detail-heading {
+  flex-direction: row;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.detail-heading-body {
+  gap: 0.4rem;
+}
+
+.detail-heading-body h1,
+.thread-card-header h2,
+.side-panel-header h2,
+.report-section-header h3 {
+  margin: 0;
+}
+
+.detail-heading-body h1 {
+  font-size: 2rem;
+  line-height: 1.15;
+}
+
+.detail-heading-body p,
+.thread-meta,
+.side-panel-header p,
+.source-card-meta,
+.source-card-snippet,
+.report-section-citations,
+.structured-report-meta {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.inline-link {
+  color: var(--accent);
+}
+
+.detail-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.75fr) minmax(280px, 0.85fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.thread-column,
+.detail-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.thread-card,
+.side-panel,
+.structured-report,
+.report-sources {
+  gap: 0.9rem;
+}
+
+.thread-card-header,
+.side-panel-header,
+.report-section-header {
+  gap: 0.35rem;
+}
+
+.thread-card-header,
+.report-section-header {
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.thread-context,
+.warning-panel,
+.meta-stack,
+.event-list,
+.structured-report,
+.source-card-grid {
+  gap: 0.85rem;
+}
+
+.thread-question {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.meta-stack {
+  display: flex;
+  flex-direction: column;
+}
+
+.meta-stack div {
+  display: grid;
+  grid-template-columns: 6rem minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: baseline;
+}
+
+.meta-stack dt,
+.meta-stack dd {
+  margin: 0;
+}
+
+.meta-stack dt {
+  color: var(--text-muted);
+}
+
+.event-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.event-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid rgba(35, 31, 26, 0.08);
+  border-radius: 10px;
+  background: #fcfaf5;
+}
+
+.event-list span,
+.event-list-empty {
+  color: var(--text-muted);
+}
+
+.structured-report {
+  gap: 1rem;
+}
+
+.structured-report-meta {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  font-size: 0.9rem;
+}
+
+.report-section,
+.report-sources {
+  padding: 0.95rem 1rem;
+  background: #fcfaf5;
+}
+
+.report-section-summary {
+  background: var(--surface-muted);
+}
+
+.report-section-citations {
+  font-size: 0.88rem;
+}
+
+.report-section-citations-muted {
+  color: var(--text-subtle);
+}
+
+.report-markdown {
+  max-width: 72ch;
+}
+
+.report-markdown > :first-child {
+  margin-top: 0;
+}
+
+.report-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.report-markdown p,
+.report-markdown li,
+.report-markdown blockquote {
+  line-height: 1.65;
+}
+
+.report-markdown ul,
+.report-markdown ol {
+  padding-left: 1.2rem;
+}
+
+.report-markdown code {
+  font-family: "SFMono-Regular", "Consolas", monospace;
+  background: rgba(35, 31, 26, 0.06);
+  border-radius: 6px;
+  padding: 0.15rem 0.35rem;
+}
+
+.report-markdown pre {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #f8f4ed;
+  padding: 0.9rem;
+}
+
+.report-markdown pre code {
+  padding: 0;
+  background: transparent;
+}
+
+.citation-link,
+.report-link,
+.source-card-header a {
+  color: var(--accent);
+}
+
+.citation-link {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(138, 75, 8, 0.16);
+  border-radius: 8px;
+  background: rgba(138, 75, 8, 0.06);
+  padding: 0.02rem 0.38rem;
+  font-size: 0.92rem;
+}
+
+.source-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.source-card {
+  gap: 0.65rem;
+  padding: 0.9rem;
+}
+
+.source-card-header,
+.source-card-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.source-card-header a {
+  font-weight: 700;
+}
+
+.source-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.5rem;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.source-status-cited {
+  border-color: rgba(72, 98, 77, 0.22);
+  color: var(--success);
+  background: rgba(72, 98, 77, 0.08);
+}
+
+.source-card-meta {
+  font-size: 0.88rem;
+}
+
+.source-card-snippet {
+  line-height: 1.6;
+}
+
 @media (max-width: 1080px) {
   .workspace-screen {
     padding: 1.25rem 1.25rem 1.5rem;
+  }
+
+  .workspace-page {
+    padding: 1.25rem 1.25rem 1.5rem;
+  }
+
+  .detail-workspace {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -667,6 +984,10 @@ textarea:focus {
   .composer-settings-grid {
     grid-template-columns: 1fr;
   }
+
+  .source-card-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 640px) {
@@ -674,16 +995,31 @@ textarea:focus {
     padding: 1rem 0.9rem 1.25rem;
   }
 
+  .workspace-page {
+    padding: 1rem 0.9rem 1.25rem;
+  }
+
   .screen-header h1,
-  .conversation-header h1 {
+  .conversation-header h1,
+  .detail-heading-body h1 {
     font-size: 1.55rem;
   }
 
   .thread-entry-header,
   .thread-activity-list li,
   .history-item-row,
-  .history-item-footer {
+  .history-item-footer,
+  .detail-heading,
+  .thread-card-header,
+  .report-section-header,
+  .source-card-header,
+  .source-card-meta {
     flex-direction: column;
+  }
+
+  .meta-stack div {
+    grid-template-columns: 1fr;
+    gap: 0.2rem;
   }
 
   .composer-dock {
