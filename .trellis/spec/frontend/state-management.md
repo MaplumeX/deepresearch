@@ -6,48 +6,35 @@
 
 ## Overview
 
-<!--
-Document your project's state management conventions here.
-
-Questions to answer:
-- What state management solution do you use?
-- How is local vs global state decided?
-- How do you handle server state?
-- What are the patterns for derived state?
--->
-
-(To be filled by the team)
+We use **Zustand** as our primary state management solution to handle both global conversation state and Server-Sent Events (SSE) streaming updates efficiently without complex cache patching overhead. 
 
 ---
 
 ## State Categories
 
-- Local state: transient form edits and UI-only event logs
-- URL state: route params such as `conversationId` and legacy `runId`
-- Server state: conversation list/detail, run detail, and conversation/resume mutations
-- Realtime state: SSE events merged into React Query caches for both run detail and conversation detail
+- **Local state**: Transient form edits (e.g. `ChatInput` textarea value) and local UI variants.
+- **URL state**: Not actively used in the current SPA design, conversation ID is managed globally inside the active store context.
+- **Server state / Realtime state**: Conversation list, active conversation messages, and real-time SSE streaming are managed collectively inside the Zustand store (`useChatStore`).
 
 ---
 
 ## When to Use Global State
 
-- Prefer React Query cache for data fetched from the backend
-- Promote to explicit global state only when multiple distant routes need non-server UI state
-- Do not build a second client-side store for run or conversation detail if React Query + SSE already own it
+- All backend data (conversations list, active conversation details, current streaming previews) are centrally managed in `useChatStore`.
+- Use local `useState` only for purely UI-bound interactions like input tracking or temporary UI toggling.
+- Avoid building multiple client-side caches; the discrete Zustand store acts as the single source of truth for the active session.
 
 ---
 
-## Server State
+## Server State & Realtime (Zustand + SSE)
 
-- Use TanStack Query for conversation list/detail queries, legacy run queries, and create/resume mutations
-- Let SSE patch both run caches and conversation caches in place so the UI does not need polling
-- Prefer conversation detail as the thread source of truth; use run detail mainly for legacy route compatibility or targeted drill-down
-- Close realtime subscriptions when a run reaches `completed` or `failed`
+- The Zustand store exposes explicit methods (`loadConversations`, `loadConversation`, `sendMessage`) that internally consume network utilities from `src/lib/api.ts`.
+- SSE events are tied directly to the conversation mutation methods. When `sendMessage` executes, it immediately connects an `EventSource` to patch the store's `streamingAssistantPreview` reactive state.
+- Upon SSE reaching terminal limits (`completed`, `failed`, `interrupted`), the SSE subscription is locally closed, and the store dispatches a definitive reload of the conversation detail to lock in the final markdown.
 
 ---
 
 ## Common Mistakes
 
-- Duplicating backend status strings inside multiple components instead of importing shared types
-- Mixing SSE-updated detail state with a separate local copy that silently drifts
-- Updating run detail from SSE but forgetting to patch the linked conversation summary/message cache
+- **Memory Leaks / Stuck state**: Forgetting to unsubscribe from SSE when unmounting or switching streams - currently handled automatically within the `sendMessage` scope closure.
+- **Unwrapping Errors**: FastAPI endpoints typically wrap domain objects in response models (e.g., `{"conversations": [...]}` instead of `[...]`). Direct mapping over the raw JSON without extracting the inner array will crash the UI. `src/lib/api.ts` always unpacks these responses first.
