@@ -3,8 +3,19 @@ import type { ResearchRun, ResearchRunEvent, ResearchRunSummary, RunStatus } fro
 const terminalStatuses: RunStatus[] = ["completed", "failed"];
 
 export function toRunSummary(run: ResearchRun): ResearchRunSummary {
-  const { result: _, warnings: __, ...summary } = run;
-  return summary;
+  return {
+    run_id: run.run_id,
+    conversation_id: run.conversation_id,
+    origin_message_id: run.origin_message_id,
+    assistant_message_id: run.assistant_message_id,
+    parent_run_id: run.parent_run_id,
+    status: run.status,
+    request: run.request,
+    error_message: run.error_message,
+    created_at: run.created_at,
+    updated_at: run.updated_at,
+    completed_at: run.completed_at,
+  };
 }
 
 export function upsertRunSummary(

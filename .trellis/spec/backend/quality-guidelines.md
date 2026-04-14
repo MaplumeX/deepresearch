@@ -46,14 +46,48 @@ Put merge, citation, dedupe, and budget logic in `app/services/` so it can be te
 
 When changing the graph, update the documented state keys in `research-agent-runtime.md`.
 
+### Repository Lint Entry Point
+
+Run backend lint from the repository root:
+
+```bash
+uv run ruff check app tests
+```
+
+If the developer is already inside a virtual environment with dev dependencies installed, this is also valid:
+
+```bash
+python3 -m ruff check app tests
+```
+
+Keep Python lint configuration centralized in the root `pyproject.toml`. Do not add ad-hoc per-directory lint configs unless a tool requires them.
+
+### Behavior-Neutral Cleanup for Tooling Work
+
+When enabling a new static check, prefer the smallest code change that removes the warning without changing runtime behavior.
+
+Examples:
+- Remove unused imports instead of weakening the rule
+- Build explicit summary objects instead of binding unused placeholder variables
+- Avoid blanket ignores such as `# noqa` unless a real false positive is documented
+
 ---
 
 ## Testing Requirements
 
+- Run `uv run ruff check app tests` for backend changes and Python tooling changes
 - Run syntax compilation for `app/` and `tests/`
 - Unit test pure service logic first
 - Skip provider-dependent tests when the dependency is absent in the current environment
 - Add integration tests after the runtime path is stable and provider credentials are available
+
+For Python tooling or quality pipeline changes, the minimum closing check is:
+
+```bash
+uv run ruff check app tests
+python3 -m compileall app tests
+uv run pytest
+```
 
 ---
 
@@ -64,3 +98,4 @@ When changing the graph, update the documented state keys in `research-agent-run
 - Does every inline citation map to a real `source_id`?
 - Does the code still work without model credentials?
 - Is new reusable logic placed in `app/services/` instead of copied across nodes?
+- Does the change keep backend quality tooling discoverable from `pyproject.toml` and documented commands?

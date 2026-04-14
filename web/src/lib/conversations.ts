@@ -10,8 +10,14 @@ export function toConversationSummary(
   conversation: ResearchConversationDetail | ResearchConversationSummary,
 ): ResearchConversationSummary {
   if ("messages" in conversation) {
-    const { messages: _, runs: __, ...summary } = conversation;
-    return summary;
+    return {
+      conversation_id: conversation.conversation_id,
+      title: conversation.title,
+      latest_message_preview: conversation.latest_message_preview,
+      latest_run_status: conversation.latest_run_status,
+      created_at: conversation.created_at,
+      updated_at: conversation.updated_at,
+    };
   }
   return conversation;
 }

@@ -1,0 +1,6 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend quality tooling should be explicit and repository-owned."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Config changes should reuse existing commands and avoid duplicated quality entrypoints."}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Frontend tooling belongs in web/ and should follow existing package layout."}

@@ -190,6 +190,14 @@ curl -X POST http://127.0.0.1:8000/api/research/runs/<run_id>/resume \
 
 ## 6. 开发期常用命令
 
+后端 lint：
+
+```bash
+uv run ruff check app tests
+# 或在已安装 dev 依赖的虚拟环境里执行
+python3 -m ruff check app tests
+```
+
 语法编译：
 
 ```bash
@@ -202,10 +210,11 @@ python3 -m compileall app tests
 python3 -m unittest discover -s tests/unit
 ```
 
-前端类型检查 / 构建 / 单测：
+前端 lint / 类型检查 / 构建 / 单测：
 
 ```bash
 cd web
+npm run lint
 npm run typecheck
 npm run build
 npm run test
