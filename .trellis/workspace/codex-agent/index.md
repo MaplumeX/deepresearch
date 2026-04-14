@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 16
+- **Total Sessions**: 18
 - **Last Active**: 2026-04-14
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~704 | Active |
+| `journal-1.md` | ~770 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,8 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 18 | 2026-04-14 | Conversation Session Modes | `8fb1b27` | `master` |
+| 17 | 2026-04-14 | Conversation session modes | `8fb1b27` | `master` |
 | 16 | 2026-04-14 | 修复前端渲染和交互问题 | `4541b10` | `master` |
 | 15 | 2026-04-14 | Frontend UI Rewrite & API Integration | `7f0f7f5` | `master` |
 | 14 | 2026-04-14 | Add one-command backend startup | `79bed00` | `master` |

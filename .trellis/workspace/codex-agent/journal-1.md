@@ -702,3 +702,69 @@ Completely rewrote the frontend from legacy codebase to modern React+Zustand+sha
 ### Next Steps
 
 - None - task complete
+
+
+## Session 17: Conversation session modes
+
+**Date**: 2026-04-14
+**Task**: Conversation session modes
+**Branch**: `master`
+
+### Summary
+
+Added chat and deep research session modes with a unified conversation API, updated frontend mode handling, and synchronized specs and tests.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8fb1b27` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 18: Conversation Session Modes
+
+**Date**: 2026-04-14
+**Task**: Conversation Session Modes
+**Branch**: `master`
+
+### Summary
+
+Added chat and deep research session modes, unified conversation APIs, updated frontend composer/state flow, and synchronized specs/tests.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8fb1b27` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
