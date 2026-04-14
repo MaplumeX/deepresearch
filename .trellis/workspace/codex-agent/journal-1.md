@@ -597,3 +597,42 @@ Added repository lint entrypoints for Python and web, documented the workflow, a
 ### Next Steps
 
 - None - task complete
+
+
+## Session 14: Add one-command backend startup
+
+**Date**: 2026-04-14
+**Task**: Add one-command backend startup
+**Branch**: `master`
+
+### Summary
+
+新增统一 CLI 启动入口，自动加载 .env，并通过 uv run deepresearch-api 一键启动后端。
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Startup | Added `app/cli.py` as the backend entrypoint with automatic `.env` loading and centralized `host` / `port` / `reload` handling. |
+| Config | Reused env parsing helpers in `app/config.py` and added `APP_HOST`, `APP_PORT`, and `APP_RELOAD` examples to `.env.example`. |
+| Docs | Updated `README.md` and backend directory-structure spec so the new startup path is documented and discoverable. |
+| Tests | Added `tests/unit/test_cli.py` and verified `uv run deepresearch-api --help`, `uv run ruff check app tests`, `python3 -m compileall app tests`, and `uv run pytest`. |
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `79bed00` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
