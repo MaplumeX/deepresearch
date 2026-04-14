@@ -6,15 +6,17 @@ interface ChatState {
   conversations: ConversationSummary[]
   activeConversationId: string | null
   activeConversationParams: ConversationDetail | null
-  
+
   isGenerating: boolean
   streamingRunId: string | null
   streamingAssistantPreview: string
-  
+  error: string | null
+
   loadConversations: () => Promise<void>
   loadConversation: (id: string) => Promise<void>
   sendMessage: (question: string) => Promise<void>
   startNewChat: () => void
+  clearError: () => void
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -25,36 +27,44 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isGenerating: false,
   streamingRunId: null,
   streamingAssistantPreview: "",
+  error: null,
 
-  startNewChat: () => set({ 
-    activeConversationId: null, 
-    activeConversationParams: null, 
-    streamingAssistantPreview: '', 
-    isGenerating: false 
+  clearError: () => set({ error: null }),
+
+  startNewChat: () => set({
+    activeConversationId: null,
+    activeConversationParams: null,
+    streamingAssistantPreview: '',
+    isGenerating: false,
+    error: null
   }),
 
   loadConversations: async () => {
     try {
       const data = await fetchConversations()
-      set({ conversations: data })
+      set({ conversations: data, error: null })
     } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load conversations'
       console.error('Failed to load convs:', err)
+      set({ error: message })
     }
   },
 
   loadConversation: async (id) => {
     try {
       const data = await fetchConversation(id)
-      set({ activeConversationId: id, activeConversationParams: data, streamingAssistantPreview: "" })
+      set({ activeConversationId: id, activeConversationParams: data, streamingAssistantPreview: "", error: null })
     } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load conversation'
       console.error('Failed to load conv:', err)
+      set({ error: message })
     }
   },
 
   sendMessage: async (question: string) => {
     const { activeConversationId, activeConversationParams } = get()
-    set({ isGenerating: true, streamingAssistantPreview: "" })
-    
+    set({ isGenerating: true, streamingAssistantPreview: "", error: null })
+
     try {
       let detail: ConversationDetail
       let run: RunDetail
@@ -69,7 +79,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       }
-      
+
       if (!activeConversationId) {
         set({ activeConversationParams: {
           conversation_id: 'temp',
@@ -85,9 +95,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         detail = d
         run = r
         set({ activeConversationId: detail.conversation_id })
+        await get().loadConversations()
       } else {
         const currentMessages = activeConversationParams?.messages || []
-        set({ activeConversationParams: { 
+        set({ activeConversationParams: {
           ...activeConversationParams!,
           messages: [...currentMessages, optimisticUserMsg]
         }})
@@ -96,14 +107,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
         detail = d
         run = r
       }
-      
+
       set({ activeConversationParams: detail, streamingRunId: run.run_id })
-      
+
       subscribeToRunEvents(run.run_id, (ev) => {
-        if (ev.data?.assistant_message) {
-           set({ streamingAssistantPreview: ev.data.assistant_message.content || "" })
+        if (ev.data?.assistant_message?.content) {
+           set({ streamingAssistantPreview: ev.data.assistant_message.content })
         }
-        
+
         if (ev.type === 'run.completed' || ev.type === 'run.failed' || ev.type === 'run.interrupted') {
            set({ isGenerating: false, streamingRunId: null })
            if (detail.conversation_id) {
@@ -112,13 +123,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
            }
         }
       }, (err) => {
+         const message = err instanceof Error ? err.message : 'Connection error'
          console.error('SSE Error:', err)
-         set({ isGenerating: false, streamingRunId: null })
+         set({ isGenerating: false, streamingRunId: null, error: message })
       })
 
     } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to send message'
       console.error('Failed to send:', err)
-      set({ isGenerating: false })
+      set({ isGenerating: false, error: message })
     }
   }
 }))
