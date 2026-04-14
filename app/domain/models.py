@@ -176,6 +176,7 @@ RunEventType = Literal[
 ChatEventType = Literal[
     "chat.turn.created",
     "chat.turn.status_changed",
+    "chat.turn.progress",
     "chat.turn.completed",
     "chat.turn.failed",
 ]

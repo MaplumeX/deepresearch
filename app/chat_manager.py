@@ -172,7 +172,14 @@ class ChatConversationManager:
             conversation = self._store.get_conversation(running_turn.conversation_id, expected_mode="chat")
             if conversation is None:
                 raise ChatConversationNotFoundError(running_turn.conversation_id)
-            reply = await generate_chat_reply(self._settings, conversation)
+
+            def on_chunk(content: str) -> None:
+                self._store.update_chat_assistant_message_content(turn_id, content)
+                turn = self._store.get_chat_turn(turn_id)
+                if turn is not None:
+                    self._publish("chat.turn.progress", turn, {})
+
+            reply = await generate_chat_reply(self._settings, conversation, on_chunk=on_chunk)
         except asyncio.CancelledError:
             failed_turn = self._store.mark_chat_turn_failed(turn_id, "Reply was cancelled during shutdown.")
             self._publish("chat.turn.failed", failed_turn, {})

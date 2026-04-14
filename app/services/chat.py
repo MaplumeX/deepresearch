@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 
 from app.config import Settings
 from app.domain.models import ResearchConversationDetail
@@ -13,7 +13,11 @@ SYSTEM_PROMPT = (
 )
 
 
-async def generate_chat_reply(settings: Settings, conversation: ResearchConversationDetail) -> str:
+async def generate_chat_reply(
+    settings: Settings,
+    conversation: ResearchConversationDetail,
+    on_chunk: Callable[[str], None] | None = None,
+) -> str:
     latest_question = _latest_user_question(conversation)
     if not latest_question:
         return "请提供一个具体问题。"
@@ -37,9 +41,17 @@ async def generate_chat_reply(settings: Settings, conversation: ResearchConversa
         else:
             messages.append(AIMessage(content=content))
 
-    response = await model.ainvoke(messages)
-    content = _coerce_text(response.content)
-    return content.strip() or "我暂时没有生成有效回复，请换个表述再试一次。"
+    content_parts: list[str] = []
+    async for chunk in model.astream(messages):
+        text = _coerce_text(chunk.content)
+        if not text:
+            continue
+        content_parts.append(text)
+        if on_chunk is not None:
+            on_chunk("".join(content_parts))
+
+    full_content = "".join(content_parts)
+    return full_content.strip() or "我暂时没有生成有效回复，请换个表述再试一次。"
 
 
 def _latest_user_question(conversation: ResearchConversationDetail) -> str:

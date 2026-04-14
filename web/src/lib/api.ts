@@ -90,6 +90,7 @@ const SSE_EVENT_TYPES = [
   'run.resumed',
   'chat.turn.created',
   'chat.turn.status_changed',
+  'chat.turn.progress',
   'chat.turn.completed',
   'chat.turn.failed',
 ] as const

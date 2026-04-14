@@ -44,7 +44,7 @@ class ChatConversationManagerTest(unittest.IsolatedAsyncioTestCase):
         self.temp_dir.cleanup()
 
     async def test_create_conversation_completes_in_background(self) -> None:
-        async def fake_generate_reply(_, __):
+        async def fake_generate_reply(_, __, **kwargs):
             return "Hello back"
 
         with patch("app.chat_manager.generate_chat_reply", side_effect=fake_generate_reply):

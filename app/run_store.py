@@ -1048,6 +1048,17 @@ class ResearchRunStore:
     def _as_string(self, value: object) -> str:
         return value if isinstance(value, str) else ""
 
+    def update_chat_assistant_message_content(
+        self,
+        turn_id: str,
+        content: str,
+    ) -> None:
+        now = utc_now_iso()
+        with self._connect() as connection:
+            self._update_chat_assistant_message_content(connection, turn_id, content, now)
+            self._touch_chat_conversation(connection, turn_id, now)
+            connection.commit()
+
     def _update_chat_assistant_message_content(
         self,
         connection: sqlite3.Connection,
