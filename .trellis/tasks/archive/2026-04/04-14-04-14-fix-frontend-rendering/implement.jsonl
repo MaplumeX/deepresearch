@@ -1,0 +1,5 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Lint and build requirements"}
+{"file": "web/src/components/ChatArea.tsx", "reason": "Main component to fix markdown rendering"}
+{"file": "web/src/store/useChatStore.ts", "reason": "Store with streaming and error state logic"}
