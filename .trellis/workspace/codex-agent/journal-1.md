@@ -498,3 +498,51 @@ Added repository lint entrypoints for Python and web, documented the workflow, a
 ### Next Steps
 
 - None - task complete
+
+
+## Session 12: Structured report contract for deep research
+
+**Date**: 2026-04-14
+**Task**: Structured report contract for deep research
+**Branch**: `master`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Backend contract | Added `draft_structured_report` and `final_structured_report` alongside markdown report fields. |
+| Report generation | Introduced structured report normalization with sections, citation index, and source cards. |
+| Audit | Strengthened citation audit to validate section-level citation coverage and citation-index consistency. |
+| Frontend | Reworked run detail rendering to prefer structured report payloads with clickable citations and source cards. |
+| Tests | Added backend and frontend coverage for synthesis, audit, report parsing, and report rendering. |
+
+**Key Files**:
+- `app/services/report_contract.py`
+- `app/services/synthesis.py`
+- `app/graph/nodes/audit.py`
+- `web/src/components/StructuredReportView.tsx`
+- `web/src/lib/report.ts`
+- `.trellis/spec/backend/research-agent-runtime.md`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b1903a2` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
