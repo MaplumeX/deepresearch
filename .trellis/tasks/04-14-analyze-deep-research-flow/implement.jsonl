@@ -1,0 +1,9 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Need backend module boundary guidance for flow analysis."}
+{"file": ".trellis/spec/backend/research-agent-runtime.md", "reason": "Need runtime and contract details for run flow."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Need explicit orchestration and side-effect boundary rules."}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Need frontend module boundary guidance for UI flow tracing."}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Need frontend hook and package quality expectations."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "This task traces data across frontend, API, runtime, and persistence."}
