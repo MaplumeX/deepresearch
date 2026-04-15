@@ -10,6 +10,7 @@ import type {
   RunDetail,
   SSEEvent,
 } from '@/types/research'
+import type { ResearchSettings } from '@/store/useSettingsStore'
 import {
   continueConversation,
   deleteConversation as apiDeleteConversation,
@@ -41,7 +42,7 @@ interface ChatState {
   activeStream: ActiveStream | null
   loadConversations: () => Promise<void>
   loadConversation: (id: string) => Promise<void>
-  sendMessage: (question: string) => Promise<void>
+  sendMessage: (question: string, settings?: Partial<ResearchSettings>) => Promise<void>
   startNewChat: () => void
   activateResearchDraft: () => void
   deactivateResearchDraft: () => void
@@ -265,7 +266,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       }
     },
 
-    sendMessage: async (question: string) => {
+    sendMessage: async (question: string, settings?: Partial<ResearchSettings>) => {
       const {
         activeConversation,
         activeConversationId,
@@ -304,7 +305,7 @@ export const useChatStore = create<ChatState>((set, get) => {
             activeConversation: createOptimisticConversation(question, mode, optimisticUserMsg),
           })
 
-          const result = await startConversation(question, mode)
+          const result = await startConversation(question, mode, settings)
           detail = result.conversation
           run = result.run
           turn = result.turn
@@ -322,7 +323,7 @@ export const useChatStore = create<ChatState>((set, get) => {
             },
           })
 
-          const result = await continueConversation(activeConversationId, question, mode)
+          const result = await continueConversation(activeConversationId, question, mode, undefined, settings)
           detail = result.conversation
           run = result.run
           turn = result.turn

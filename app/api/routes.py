@@ -16,6 +16,7 @@ from app.api.schemas import (
     RunListResponse,
     RunRequest,
 )
+from app.config import get_settings
 from app.chat_manager import (
     ChatConversationManager,
     ChatTurnNotFoundError,
@@ -100,8 +101,8 @@ async def create_any_conversation(
                 question=payload.question,
                 scope=payload.scope,
                 output_language=payload.output_language or "zh-CN",
-                max_iterations=payload.max_iterations or 2,
-                max_parallel_tasks=payload.max_parallel_tasks or 3,
+                max_iterations=payload.max_iterations or get_settings().default_max_iterations,
+                max_parallel_tasks=payload.max_parallel_tasks or get_settings().default_max_parallel_tasks,
             ).model_dump(exclude_none=True)
         )
         return ConversationMutationResponse(conversation=conversation, run=run)
@@ -134,9 +135,9 @@ async def create_any_conversation_message(
                 conversation_id=conversation_id,
                 request_payload=ResearchConversationTurnRequest(
                     question=payload.question,
-                    output_language="zh-CN",
-                    max_iterations=2,
-                    max_parallel_tasks=3,
+                    output_language=payload.output_language or "zh-CN",
+                    max_iterations=payload.max_iterations or get_settings().default_max_iterations,
+                    max_parallel_tasks=payload.max_parallel_tasks or get_settings().default_max_parallel_tasks,
                     parent_run_id=payload.parent_run_id,
                 ).model_dump(exclude_none=True),
             )

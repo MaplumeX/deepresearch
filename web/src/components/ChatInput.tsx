@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUp, Sparkles } from 'lucide-react'
+import { ArrowUp, Sparkles, Settings2 } from 'lucide-react'
 import { Button } from './ui/button'
 import { useChatStore } from '@/store/useChatStore'
+import { useSettingsStore, type ResearchSettings } from '@/store/useSettingsStore'
+import { ResearchSettingsDialog } from './ResearchSettingsDialog'
 
 function ResearchExitDialog({
   open,
@@ -40,9 +42,15 @@ function ResearchExitDialog({
   )
 }
 
+function languageLabel(lang: ResearchSettings['outputLanguage']) {
+  return lang === 'en' ? 'English' : '简体中文'
+}
+
 export function ChatInput() {
   const [val, setVal] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
+  const [sessionSettings, setSessionSettings] = useState<Partial<ResearchSettings> | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const {
     sendMessage,
@@ -53,6 +61,7 @@ export function ChatInput() {
     deactivateResearchDraft,
     exitResearchConversation,
   } = useChatStore()
+  const globalSettings = useSettingsStore()
 
   const isResearchConversation = activeConversation?.mode === 'research'
   const showResearchButton = !activeConversation || isResearchConversation
@@ -61,11 +70,17 @@ export function ChatInput() {
   const placeholder = researchSelected ? 'Ask Deep Research...' : 'Message...'
   const dialogVisible = dialogOpen && isResearchConversation
 
+  const resolvedSettings: ResearchSettings = {
+    outputLanguage: sessionSettings?.outputLanguage ?? globalSettings.outputLanguage,
+    maxIterations: sessionSettings?.maxIterations ?? globalSettings.maxIterations,
+    maxParallelTasks: sessionSettings?.maxParallelTasks ?? globalSettings.maxParallelTasks,
+  }
+
   const handleSend = () => {
     if (!val.trim() || isGenerating) {
       return
     }
-    void sendMessage(val.trim())
+    void sendMessage(val.trim(), sessionSettings ?? undefined)
     setVal('')
     if (textareaRef.current) {
       textareaRef.current.style.height = '56px'
@@ -79,6 +94,7 @@ export function ChatInput() {
     }
     if (draftMode === 'research') {
       deactivateResearchDraft()
+      setSessionSettings(null)
       return
     }
     activateResearchDraft()
@@ -87,6 +103,7 @@ export function ChatInput() {
   const handleConfirmExitResearch = () => {
     setDialogOpen(false)
     exitResearchConversation()
+    setSessionSettings(null)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -120,8 +137,35 @@ export function ChatInput() {
         onConfirm={handleConfirmExitResearch}
       />
 
+      <ResearchSettingsDialog
+        open={settingsDialogOpen}
+        title="本次研究配置"
+        confirmLabel="应用"
+        initialValues={resolvedSettings}
+        onClose={() => setSettingsDialogOpen(false)}
+        onConfirm={(next) => {
+          setSessionSettings(next)
+          setSettingsDialogOpen(false)
+        }}
+      />
+
       <div className="absolute bottom-0 left-0 w-full bg-gradient-to-t from-background via-background/95 to-transparent pb-6 pt-16 px-4 md:px-0 pointer-events-none">
         <div className="max-w-3xl mx-auto relative group pointer-events-auto">
+          {researchSelected && !isResearchConversation && (
+            <div className="mb-2 flex items-center justify-center gap-2 text-xs text-muted-foreground pointer-events-auto">
+              <span>
+                本次配置：{languageLabel(resolvedSettings.outputLanguage)} · {resolvedSettings.maxIterations}次迭代 · {resolvedSettings.maxParallelTasks}并行
+              </span>
+              <button
+                type="button"
+                onClick={() => setSettingsDialogOpen(true)}
+                className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <Settings2 className="h-3.5 w-3.5" />
+                调整
+              </button>
+            </div>
+          )}
           <div className="absolute -inset-[2px] bg-gradient-to-r from-primary/10 via-primary/5 to-transparent rounded-3xl blur-md opacity-0 group-focus-within:opacity-100 transition-opacity duration-700"></div>
           <div className="relative overflow-hidden rounded-3xl border border-border bg-card shadow-[0_0_15px_rgba(0,0,0,0.03)] transition-all duration-300 focus-within:border-ring focus-within:ring-1 focus-within:ring-ring dark:shadow-[0_0_15px_rgba(0,0,0,0.2)]">
             <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">

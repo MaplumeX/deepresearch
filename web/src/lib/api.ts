@@ -6,6 +6,8 @@ import type {
   RunDetail,
   SSEEvent,
 } from '@/types/research'
+import type { ResearchSettings } from '@/store/useSettingsStore'
+import { useSettingsStore } from '@/store/useSettingsStore'
 
 async function parseJson<T>(res: Response): Promise<T> {
   const data = await res.json()
@@ -41,12 +43,14 @@ export async function pinConversation(id: string): Promise<void> {
 export async function startConversation(
   question: string,
   mode: ConversationMode,
+  settings?: Partial<ResearchSettings>,
 ): Promise<{ conversation: ConversationDetail; run: RunDetail | null; turn: ChatTurnDetail | null }> {
   const body: Record<string, unknown> = { question, mode }
   if (mode === 'research') {
-    body.output_language = 'zh-CN'
-    body.max_iterations = 2
-    body.max_parallel_tasks = 3
+    const global = useSettingsStore.getState()
+    body.output_language = settings?.outputLanguage ?? global.outputLanguage
+    body.max_iterations = settings?.maxIterations ?? global.maxIterations
+    body.max_parallel_tasks = settings?.maxParallelTasks ?? global.maxParallelTasks
   }
   const res = await fetch('/api/conversations', {
     method: 'POST',
@@ -61,10 +65,17 @@ export async function continueConversation(
   question: string,
   mode: ConversationMode,
   parentRunId?: string,
+  settings?: Partial<ResearchSettings>,
 ): Promise<{ conversation: ConversationDetail; run: RunDetail | null; turn: ChatTurnDetail | null }> {
   const body: Record<string, unknown> = { question }
-  if (mode === 'research' && parentRunId) {
-    body.parent_run_id = parentRunId
+  if (mode === 'research') {
+    const global = useSettingsStore.getState()
+    body.output_language = settings?.outputLanguage ?? global.outputLanguage
+    body.max_iterations = settings?.maxIterations ?? global.maxIterations
+    body.max_parallel_tasks = settings?.maxParallelTasks ?? global.maxParallelTasks
+    if (parentRunId) {
+      body.parent_run_id = parentRunId
+    }
   }
   const res = await fetch(`/api/conversations/${conversationId}/messages`, {
     method: 'POST',

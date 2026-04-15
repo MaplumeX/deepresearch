@@ -40,6 +40,9 @@ class ConversationCreateRequest(BaseModel):
 class ConversationMessageRequest(BaseModel):
     question: str = Field(min_length=1)
     parent_run_id: str | None = None
+    output_language: Literal["zh-CN", "en"] | None = None
+    max_iterations: int | None = Field(default=None, ge=1, le=5)
+    max_parallel_tasks: int | None = Field(default=None, ge=1, le=5)
 
 
 class RunDetailResponse(BaseModel):
