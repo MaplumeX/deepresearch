@@ -167,3 +167,73 @@ Built the initial Python LangGraph/LangChain deep research backend scaffold with
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: 重构前端侧边栏（方案B）
+
+**Date**: 2026-04-15
+**Task**: 重构前端侧边栏（方案B）
+**Branch**: `master`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+## 完成内容
+
+重构了前端侧边栏，实现了方案B的所有核心需求：
+
+- **平滑动画折叠**：侧边栏不再直接卸载，而是缩放到 64px 宽的 icon-only rail，主内容区同步过渡
+- **会话分区**：新增 `is_pinned` 字段，侧边栏分为 Pinned / Recent 两个区域
+- **搜索过滤**：在会话列表顶部增加搜索框，实时按标题过滤
+- **状态增强**：Research 模式会话左侧显示 indigo 色条，运行中/排队状态的会话显示 loading spinner
+- **组件化拆分**：拆分为 SidebarHeader、SidebarRail、ConversationList、ConversationItem、SidebarFooter
+- **DropdownMenu 替换**：将手写菜单替换为 shadcn/ui 的 DropdownMenu，支持置顶/取消置顶
+- **空状态**：无会话和搜索无结果时显示友好提示
+- **后端同步**：在 `ResearchConversationSummary` 中暴露 `is_pinned` 字段，API 正确返回
+
+## 变更文件
+
+### 前端
+- `web/src/components/Sidebar.tsx`
+- `web/src/layouts/MainLayout.tsx`
+- `web/src/components/SidebarHeader.tsx` (new)
+- `web/src/components/SidebarRail.tsx` (new)
+- `web/src/components/SidebarFooter.tsx` (new)
+- `web/src/components/ConversationList.tsx` (new)
+- `web/src/components/ConversationItem.tsx` (new)
+- `web/src/components/ui/dropdown-menu.tsx` (new)
+- `web/src/components/ui/tooltip.tsx` (new)
+- `web/src/components/ui/separator.tsx` (new)
+- `web/src/types/research.ts`
+- `web/package.json`
+
+### 后端
+- `app/domain/models.py`
+- `app/run_store.py`
+
+## 质量检查
+
+- `npm run lint` 通过
+- `npm run typecheck` 通过
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0607ca8` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
