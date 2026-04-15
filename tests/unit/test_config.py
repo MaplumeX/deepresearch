@@ -50,10 +50,18 @@ class ConfigTest(unittest.TestCase):
 
         self.assertEqual(settings.runs_db_path, "research_runs.db")
         self.assertIsNone(settings.brave_api_key)
+        self.assertIsNone(settings.serper_api_key)
         self.assertEqual(settings.synthesis_soft_char_limit, 90000)
         self.assertEqual(settings.synthesis_hard_char_limit, 110000)
         self.assertEqual(settings.synthesis_max_findings_per_call, 24)
         self.assertEqual(settings.synthesis_max_sources_per_call, 12)
+
+    def test_loads_serper_api_key(self) -> None:
+        with patch.dict(os.environ, {"SERPER_API_KEY": "serper-test-key"}, clear=True):
+            get_settings.cache_clear()
+            settings = get_settings()
+
+        self.assertEqual(settings.serper_api_key, "serper-test-key")
 
 
 if __name__ == "__main__":

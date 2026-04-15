@@ -692,6 +692,7 @@ OPENAI_API_KEY           optional fallback alias for compatibility
 OPENAI_BASE_URL          optional fallback alias for compatibility
 TAVILY_API_KEY           optional, enables web search
 BRAVE_API_KEY            optional, enables Brave Search aggregation
+SERPER_API_KEY           optional, enables Serper (Google Search) aggregation
 CHECKPOINT_DB_PATH       optional, defaults to research.db
 RUNS_DB_PATH             optional, defaults to research_runs.db
 DEFAULT_MAX_ITERATIONS   optional, defaults to 2

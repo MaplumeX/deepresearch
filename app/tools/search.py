@@ -96,6 +96,44 @@ class BraveSearchProvider:
         return hits
 
 
+class SerperSearchProvider:
+    name = "serper"
+    _SEARCH_URL = "https://google.serper.dev/search"
+
+    def __init__(self, api_key: str, timeout_seconds: float) -> None:
+        self._api_key = api_key
+        self._timeout_seconds = timeout_seconds
+
+    async def search(self, queries: list[str], max_results: int) -> list[SearchHit]:
+        try:
+            import httpx
+        except ImportError:
+            return []
+
+        async with httpx.AsyncClient(timeout=self._timeout_seconds) as client:
+            tasks = [
+                client.post(
+                    self._SEARCH_URL,
+                    headers={"X-API-KEY": self._api_key},
+                    json={"q": query, "num": max_results},
+                )
+                for query in queries
+            ]
+            responses = await asyncio.gather(*tasks, return_exceptions=True)
+
+        hits: list[SearchHit] = []
+        for query, response in zip(queries, responses):
+            if isinstance(response, Exception):
+                continue
+            try:
+                response.raise_for_status()
+                payload = response.json()
+            except Exception:
+                continue
+            hits.extend(_normalize_serper_results(payload, query))
+        return hits
+
+
 async def search_web(queries: list[str], max_results: int) -> list[SearchHit]:
     settings = get_settings()
     providers = _build_providers(settings)
@@ -120,6 +158,8 @@ def _build_providers(settings) -> list[SearchProvider]:
         providers.append(TavilySearchProvider(settings.tavily_api_key))
     if settings.brave_api_key:
         providers.append(BraveSearchProvider(settings.brave_api_key, settings.fetch_timeout_seconds))
+    if settings.serper_api_key:
+        providers.append(SerperSearchProvider(settings.serper_api_key, settings.fetch_timeout_seconds))
     return providers
 
 
@@ -172,6 +212,31 @@ def _normalize_brave_results(payload: dict[str, Any], query: str) -> list[Search
                         "rank": rank,
                         "age": item.get("age"),
                         "language": item.get("language"),
+                    }
+                },
+            )
+        )
+    return hits
+
+
+def _normalize_serper_results(payload: dict[str, Any], query: str) -> list[SearchHit]:
+    organic = payload.get("organic", [])
+    hits: list[SearchHit] = []
+    for rank, item in enumerate(organic, start=1):
+        url = item.get("link", "")
+        if not url:
+            continue
+        hits.append(
+            SearchHit(
+                title=item.get("title", url),
+                url=url,
+                snippet=item.get("snippet", "") or "",
+                providers=["serper"],
+                provider_metadata={
+                    "serper": {
+                        "query": query,
+                        "rank": rank,
+                        "site_links": item.get("siteLinks"),
                     }
                 },
             )
