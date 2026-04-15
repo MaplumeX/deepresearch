@@ -1,0 +1,5 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "frontend lint and quality requirements"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "frontend component and file organization"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "zustand and localStorage patterns"}

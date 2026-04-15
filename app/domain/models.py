@@ -275,6 +275,7 @@ class ResearchConversationSummary(BaseModel):
     latest_run_status: RunStatus | None = None
     created_at: str
     updated_at: str
+    is_pinned: bool = False
 
 
 class ResearchConversationDetail(ResearchConversationSummary):

@@ -55,6 +55,7 @@ export type ConversationSummary = {
   latest_run_status: RunStatus | null
   created_at: string
   updated_at: string
+  is_pinned?: boolean
 }
 
 export type ResearchRequestPayload = {

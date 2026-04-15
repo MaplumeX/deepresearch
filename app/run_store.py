@@ -599,7 +599,7 @@ class ResearchRunStore:
         with self._connect() as connection:
             row = connection.execute(
                 """
-                SELECT conversation_id, mode, title, created_at, updated_at
+                SELECT conversation_id, mode, title, created_at, updated_at, pinned_at
                 FROM conversations
                 WHERE conversation_id = ?
                 """,
@@ -1311,6 +1311,7 @@ class ResearchRunStore:
             latest_run_status=latest_run_status,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            is_pinned=row["pinned_at"] is not None,
             messages=messages,
             runs=runs,
         )
