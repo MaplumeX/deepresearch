@@ -8,16 +8,19 @@ from uuid import uuid4
 
 from app.config import Settings
 from app.domain.models import (
+    ResearchProgressPayload,
     ResearchConversationDetail,
     ResearchConversationSummary,
     ResearchRunDetail,
     ResearchRunEvent,
+    ResearchRunHistoryEvent,
     ResearchRunSummary,
     RunEventType,
     RunStatus,
 )
 from app.run_store import ResearchRunStore, build_conversation_title
 from app.runtime import resume_research, run_research
+from app.services.research_progress import build_counts, build_progress_payload
 from app.services.conversation_memory import (
     DEFAULT_MEMORY_WINDOW,
     build_memory_context,
@@ -26,7 +29,7 @@ from app.services.conversation_memory import (
 )
 
 
-TERMINAL_RUN_STATUSES = {"completed", "failed"}
+TERMINAL_RUN_STATUSES = {"completed", "failed", "interrupted"}
 ACTIVE_RUN_STATUSES = {"queued", "running"}
 
 
@@ -144,13 +147,25 @@ class ResearchRunManager:
             raise InvalidRunStateError(f"Run {run_id} is already active.")
 
         updated_run = self._store.set_status(run_id, "running")
-        self._publish("run.resumed", updated_run, {"resume_payload": resume_payload})
+        self._publish(
+            "run.resumed",
+            updated_run,
+            {
+                "message": "Review submitted. Resuming research.",
+                "resume_payload": resume_payload,
+                "progress": self._build_progress_snapshot(updated_run, "finalizing").model_dump(),
+            },
+        )
         self._start_background_task(run_id, self._execute_resume(run_id, resume_payload))
         return updated_run
 
     async def stream_events(self, run_id: str):
         run = self.get_run(run_id)
-        initial_event = self._build_event(self._event_type_for_status(run.status), run, {})
+        latest_event = self._store.get_latest_run_event(run_id)
+        if latest_event is not None:
+            initial_event = self._build_event_from_history(run, latest_event)
+        else:
+            initial_event = self._build_event(self._event_type_for_status(run.status), run, {})
         yield self._format_sse(initial_event)
 
         if run.status in TERMINAL_RUN_STATUSES:
@@ -205,7 +220,17 @@ class ResearchRunManager:
             title=title,
             parent_run_id=parent_run_id,
         )
-        self._publish("run.created", run, {})
+        self._publish(
+            "run.created",
+            run,
+            {
+                "message": "Research run queued.",
+                "progress": build_progress_payload(
+                    "queued",
+                    max_iterations=run.request.max_iterations,
+                ).model_dump(),
+            },
+        )
         self._start_background_task(run_id, self._execute_run(run_id, request_payload, memory_context))
         return conversation, run
 
@@ -247,14 +272,27 @@ class ResearchRunManager:
         memory_context: dict | None,
     ) -> None:
         running_run = self._store.set_status(run_id, "running")
-        self._publish("run.status_changed", running_run, {})
-        self._publish("run.progress", running_run, {"message": "Research execution started."})
-        await self._finish_execution(run_id, run_research(request_payload, run_id, memory_context))
+        self._publish(
+            "run.status_changed",
+            running_run,
+            {
+                "message": "Research execution started.",
+                "progress": build_progress_payload(
+                    "clarifying_scope",
+                    max_iterations=running_run.request.max_iterations,
+                ).model_dump(),
+            },
+        )
+        await self._finish_execution(
+            run_id,
+            self._run_research_with_progress(run_id, request_payload, memory_context),
+        )
 
     async def _execute_resume(self, run_id: str, resume_payload: dict) -> None:
-        running_run = self._store.set_status(run_id, "running")
-        self._publish("run.progress", running_run, {"message": "Review submitted. Resuming research."})
-        await self._finish_execution(run_id, resume_research(run_id, resume_payload))
+        await self._finish_execution(
+            run_id,
+            self._resume_research_with_progress(run_id, resume_payload),
+        )
 
     async def _finish_execution(self, run_id: str, execution) -> None:
         try:
@@ -262,19 +300,46 @@ class ResearchRunManager:
         except asyncio.CancelledError:
             failed_run = self._store.mark_failed(run_id, "Run was cancelled during shutdown.")
             self._refresh_conversation_memory(failed_run.conversation_id)
-            self._publish("run.failed", failed_run, {})
+            self._publish(
+                "run.failed",
+                failed_run,
+                {
+                    "message": failed_run.error_message,
+                    "progress": self._build_progress_snapshot(failed_run, "failed").model_dump(),
+                },
+            )
             raise
         except Exception as exc:
             failed_run = self._store.mark_failed(run_id, str(exc))
             self._refresh_conversation_memory(failed_run.conversation_id)
-            self._publish("run.failed", failed_run, {})
+            self._publish(
+                "run.failed",
+                failed_run,
+                {
+                    "message": str(exc),
+                    "progress": self._build_progress_snapshot(failed_run, "failed").model_dump(),
+                },
+            )
             return
 
         status: RunStatus = "interrupted" if "__interrupt__" in result else "completed"
         updated_run = self._store.store_result(run_id, status, result)
         self._refresh_conversation_memory(updated_run.conversation_id)
         event_type = "run.interrupted" if status == "interrupted" else "run.completed"
-        self._publish(event_type, updated_run, {})
+        terminal_phase = "awaiting_review" if status == "interrupted" else "completed"
+        self._publish(
+            event_type,
+            updated_run,
+            {
+                "message": "Research paused for review." if status == "interrupted" else "Research completed.",
+                "progress": self._build_progress_snapshot(
+                    updated_run,
+                    terminal_phase,
+                    review_required=status == "interrupted",
+                    review_kind="human_review" if status == "interrupted" else None,
+                ).model_dump(),
+            },
+        )
 
     def _refresh_conversation_memory(self, conversation_id: str) -> None:
         conversation = self._store.get_conversation(conversation_id)
@@ -284,11 +349,20 @@ class ResearchRunManager:
         self._store.upsert_conversation_memory(memory)
 
     def _publish(self, event_type: RunEventType, run: ResearchRunDetail, data: dict) -> None:
-        self._broker.publish(self._build_event(event_type, run, data))
+        event = self._build_event(event_type, run, data)
+        self._store.append_run_event(run.run_id, event)
+        self._broker.publish(event)
 
-    def _build_event(self, event_type: RunEventType, run: ResearchRunDetail, data: dict) -> ResearchRunEvent:
+    def _build_event(
+        self,
+        event_type: RunEventType,
+        run: ResearchRunDetail,
+        data: dict,
+        *,
+        timestamp: str | None = None,
+    ) -> ResearchRunEvent:
         payload = {
-            "run": run.model_dump(),
+            "run": run.model_dump(exclude={"progress_events"}),
         }
         conversation = self._store.get_conversation_summary(run.conversation_id)
         if conversation is not None:
@@ -301,8 +375,25 @@ class ResearchRunManager:
             type=event_type,
             run_id=run.run_id,
             status=run.status,
-            timestamp=utc_now_iso(),
+            timestamp=timestamp or utc_now_iso(),
             data=payload,
+        )
+
+    def _build_event_from_history(
+        self,
+        run: ResearchRunDetail,
+        history_event: ResearchRunHistoryEvent,
+    ) -> ResearchRunEvent:
+        data: dict = {}
+        if history_event.message is not None:
+            data["message"] = history_event.message
+        if history_event.progress is not None:
+            data["progress"] = history_event.progress.model_dump()
+        return self._build_event(
+            history_event.event_type,
+            run,
+            data,
+            timestamp=history_event.timestamp,
         )
 
     def _event_type_for_status(self, status: RunStatus) -> RunEventType:
@@ -319,3 +410,75 @@ class ResearchRunManager:
             f"event: {event.type}\n"
             f"data: {event.model_dump_json()}\n\n"
         )
+
+    def _make_progress_listener(self, run_id: str):
+        def listener(payload: dict) -> None:
+            run = self.get_run(run_id)
+            data = dict(payload)
+            progress = data.get("progress")
+            if isinstance(progress, ResearchProgressPayload):
+                data["progress"] = progress.model_dump()
+            self._publish("run.progress", run, data)
+
+        return listener
+
+    def _build_progress_snapshot(
+        self,
+        run: ResearchRunDetail,
+        phase: str,
+        *,
+        review_required: bool = False,
+        review_kind: str | None = None,
+    ) -> ResearchProgressPayload:
+        result = run.result if isinstance(run.result, dict) else {}
+        return build_progress_payload(
+            phase,
+            iteration=result.get("iteration_count") if isinstance(result.get("iteration_count"), int) else None,
+            max_iterations=run.request.max_iterations,
+            counts=build_counts(
+                planned_tasks=self._safe_size(result.get("tasks")),
+                completed_tasks=self._safe_size(result.get("task_outcomes")),
+                kept_sources=self._safe_size(result.get("sources")),
+                evidence_count=self._safe_size(result.get("findings")),
+                warnings=len(run.warnings) or None,
+            ),
+            review_required=review_required,
+            review_kind=review_kind,
+        )
+
+    def _safe_size(self, value) -> int | None:
+        if isinstance(value, (list, tuple, set, dict)):
+            return len(value)
+        return None
+
+    async def _run_research_with_progress(
+        self,
+        run_id: str,
+        request_payload: dict,
+        memory_context: dict | None,
+    ) -> dict:
+        listener = self._make_progress_listener(run_id)
+        try:
+            return await run_research(
+                request_payload,
+                run_id,
+                memory_context,
+                on_progress=listener,
+            )
+        except TypeError as exc:
+            if "on_progress" not in str(exc):
+                raise
+            return await run_research(request_payload, run_id, memory_context)
+
+    async def _resume_research_with_progress(self, run_id: str, resume_payload: dict) -> dict:
+        listener = self._make_progress_listener(run_id)
+        try:
+            return await resume_research(
+                run_id,
+                resume_payload,
+                on_progress=listener,
+            )
+        except TypeError as exc:
+            if "on_progress" not in str(exc):
+                raise
+            return await resume_research(run_id, resume_payload)

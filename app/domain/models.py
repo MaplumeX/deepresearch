@@ -131,6 +131,28 @@ class ReportDraft(BaseModel):
 GapType = Literal["missing_evidence", "weak_evidence", "low_source_diversity", "retrieval_failure"]
 GapSeverity = Literal["low", "medium", "high"]
 TaskQualityStatus = Literal["ok", "weak", "failed"]
+ResearchProgressPhase = Literal[
+    "queued",
+    "clarifying_scope",
+    "planning",
+    "executing_tasks",
+    "merging_evidence",
+    "checking_gaps",
+    "replanning",
+    "synthesizing",
+    "auditing",
+    "awaiting_review",
+    "finalizing",
+    "completed",
+    "failed",
+]
+ResearchWorkerStep = Literal[
+    "rewrite_queries",
+    "search_and_rank",
+    "acquire_and_filter",
+    "extract_and_score",
+    "emit_results",
+]
 
 
 class ResearchTaskOutcome(BaseModel):
@@ -227,6 +249,7 @@ class ResearchRunSummary(BaseModel):
 class ResearchRunDetail(ResearchRunSummary):
     result: dict[str, Any] | None = None
     warnings: list[str] = Field(default_factory=list)
+    progress_events: list["ResearchRunHistoryEvent"] = Field(default_factory=list)
 
 
 ConversationMessageRole = Literal["user", "assistant"]
@@ -257,6 +280,48 @@ class ResearchConversationSummary(BaseModel):
 class ResearchConversationDetail(ResearchConversationSummary):
     messages: list[ConversationMessage] = Field(default_factory=list)
     runs: list[ResearchRunDetail] = Field(default_factory=list)
+
+
+class ResearchProgressCounts(BaseModel):
+    planned_tasks: int | None = Field(default=None, ge=0)
+    completed_tasks: int | None = Field(default=None, ge=0)
+    search_hits: int | None = Field(default=None, ge=0)
+    acquired_contents: int | None = Field(default=None, ge=0)
+    kept_sources: int | None = Field(default=None, ge=0)
+    evidence_count: int | None = Field(default=None, ge=0)
+    warnings: int | None = Field(default=None, ge=0)
+
+
+class ResearchTaskProgress(BaseModel):
+    task_id: str
+    title: str
+    index: int = Field(ge=1)
+    total: int = Field(ge=1)
+    status: Literal["pending", "running", "done", "failed"] = "running"
+    worker_step: ResearchWorkerStep | None = None
+
+
+class ResearchReviewProgress(BaseModel):
+    required: bool = False
+    kind: Literal["human_review"] | None = None
+
+
+class ResearchProgressPayload(BaseModel):
+    phase: ResearchProgressPhase
+    phase_label: str
+    iteration: int | None = Field(default=None, ge=1)
+    max_iterations: int | None = Field(default=None, ge=1)
+    task: ResearchTaskProgress | None = None
+    counts: ResearchProgressCounts = Field(default_factory=ResearchProgressCounts)
+    review: ResearchReviewProgress = Field(default_factory=ResearchReviewProgress)
+
+
+class ResearchRunHistoryEvent(BaseModel):
+    event_type: RunEventType
+    status: RunStatus
+    timestamp: str
+    message: str | None = None
+    progress: ResearchProgressPayload | None = None
 
 
 class ResearchRunEvent(BaseModel):

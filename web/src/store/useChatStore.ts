@@ -5,6 +5,8 @@ import type {
   ConversationMessage,
   ConversationMode,
   ConversationSummary,
+  ResearchProgressPayload,
+  ResearchRunHistoryEvent,
   RunDetail,
   SSEEvent,
 } from '@/types/research'
@@ -18,6 +20,7 @@ import {
   subscribeToChatTurnEvents,
   subscribeToRunEvents,
 } from '@/lib/api'
+import { getProgressPayload, isResearchSSEEvent, toHistoryEvent } from '@/lib/research-progress'
 
 type ActiveStream = {
   cleanup: () => void
@@ -32,6 +35,8 @@ interface ChatState {
   isGenerating: boolean
   streamingRunId: string | null
   streamingAssistantPreview: string
+  streamingProgress: ResearchProgressPayload | null
+  streamingRunEvents: ResearchRunHistoryEvent[]
   error: string | null
   activeStream: ActiveStream | null
   loadConversations: () => Promise<void>
@@ -98,6 +103,8 @@ export const useChatStore = create<ChatState>((set, get) => {
       activeConversation: null,
       draftMode: 'chat',
       streamingAssistantPreview: '',
+      streamingProgress: null,
+      streamingRunEvents: [],
       isGenerating: false,
       error: null,
     })
@@ -107,12 +114,34 @@ export const useChatStore = create<ChatState>((set, get) => {
     mode: ConversationMode,
     streamId: string,
     conversationId: string,
+    initialRun?: RunDetail | null,
   ) => {
     clearActiveStream()
     const subscribe = mode === 'research' ? subscribeToRunEvents : subscribeToChatTurnEvents
     const cleanup = subscribe(
       streamId,
       (event) => {
+        if (mode === 'research' && isResearchSSEEvent(event)) {
+          const historyEvent = toHistoryEvent(event)
+          set((state) => {
+            let nextEvents = state.streamingRunEvents
+            if (historyEvent) {
+              const lastEvent = state.streamingRunEvents[state.streamingRunEvents.length - 1]
+              const isDuplicate = lastEvent
+                && lastEvent.event_type === historyEvent.event_type
+                && lastEvent.timestamp === historyEvent.timestamp
+                && lastEvent.message === historyEvent.message
+              nextEvents = isDuplicate
+                ? state.streamingRunEvents
+                : [...state.streamingRunEvents, historyEvent]
+            }
+            return {
+              streamingRunEvents: nextEvents,
+              streamingProgress: event.data.progress ?? historyEvent?.progress ?? state.streamingProgress,
+            }
+          })
+        }
+
         if (event.data?.assistant_message?.content) {
           set({ streamingAssistantPreview: event.data.assistant_message.content })
         }
@@ -135,6 +164,10 @@ export const useChatStore = create<ChatState>((set, get) => {
     set({
       activeStream: { cleanup, streamId },
       streamingRunId: streamId,
+      streamingProgress: mode === 'research'
+        ? (initialRun ? getProgressPayload(initialRun) : null)
+        : null,
+      streamingRunEvents: mode === 'research' ? (initialRun?.progress_events ?? []) : [],
     })
   }
 
@@ -146,6 +179,8 @@ export const useChatStore = create<ChatState>((set, get) => {
     isGenerating: false,
     streamingRunId: null,
     streamingAssistantPreview: '',
+    streamingProgress: null,
+    streamingRunEvents: [],
     error: null,
     activeStream: null,
 
@@ -203,7 +238,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       try {
         if (get().activeConversationId !== id) {
           clearActiveStream()
-          set({ isGenerating: false, streamingAssistantPreview: '' })
+          set({ isGenerating: false, streamingAssistantPreview: '', streamingProgress: null, streamingRunEvents: [] })
         }
         const data = await fetchConversation(id)
         set({
@@ -211,8 +246,18 @@ export const useChatStore = create<ChatState>((set, get) => {
           activeConversation: data,
           draftMode: 'chat',
           streamingAssistantPreview: '',
+          streamingProgress: null,
+          streamingRunEvents: [],
           error: null,
         })
+        if (data.mode === 'research') {
+          const liveRun = [...data.runs].reverse().find((run) => (
+            run.status === 'queued' || run.status === 'running'
+          ))
+          if (liveRun) {
+            attachStream('research', liveRun.run_id, data.conversation_id, liveRun)
+          }
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to load conversation'
         console.error('Failed to load conv:', err)
@@ -241,7 +286,13 @@ export const useChatStore = create<ChatState>((set, get) => {
       }
 
       clearActiveStream()
-      set({ isGenerating: true, streamingAssistantPreview: '', error: null })
+      set({
+        isGenerating: true,
+        streamingAssistantPreview: '',
+        streamingProgress: null,
+        streamingRunEvents: [],
+        error: null,
+      })
 
       try {
         let detail: ConversationDetail
@@ -280,7 +331,7 @@ export const useChatStore = create<ChatState>((set, get) => {
         set({ activeConversation: detail })
 
         if (run) {
-          attachStream('research', run.run_id, detail.conversation_id)
+          attachStream('research', run.run_id, detail.conversation_id, run)
           return
         }
         if (turn) {
@@ -298,6 +349,8 @@ export const useChatStore = create<ChatState>((set, get) => {
           isGenerating: false,
           error: message,
           streamingAssistantPreview: '',
+          streamingProgress: null,
+          streamingRunEvents: [],
         })
       }
     },

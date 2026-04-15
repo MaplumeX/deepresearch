@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ScrollArea } from './ui/scroll-area'
 import { Bot, X } from 'lucide-react'
+import { ResearchProgressCard } from './ResearchProgressCard'
 import { cn } from '@/lib/utils'
 import { useChatStore } from '@/store/useChatStore'
 
@@ -68,6 +69,9 @@ export function ChatArea() {
     activeConversation,
     draftMode,
     streamingAssistantPreview,
+    streamingProgress,
+    streamingRunEvents,
+    streamingRunId,
     isGenerating,
     error,
     clearError,
@@ -89,6 +93,8 @@ export function ChatArea() {
     && !lastMessage.content.trim()
   const messages = shouldHideLastPlaceholder ? allMessages.slice(0, -1) : allMessages
   const currentMode = activeConversation?.mode ?? draftMode
+  const runById = new Map((activeConversation?.runs ?? []).map((run) => [run.run_id, run]))
+  const liveRun = streamingRunId ? runById.get(streamingRunId) ?? null : null
   const emptyTitle = currentMode === 'research' ? 'Deep research is ready' : 'How can I help you today?'
   const emptyDescription = currentMode === 'research'
     ? 'Send a question to create a research session with planning, retrieval, and synthesis.'
@@ -121,40 +127,48 @@ export function ChatArea() {
           </div>
         )}
 
-        {messages.map((msg) => (
-          <div key={msg.message_id} className={cn("flex gap-4 w-full group", msg.role === 'user' ? "justify-end" : "justify-start")}>
-            {msg.role === 'assistant' && (
-              <div className="w-8 h-8 mt-0.5 shrink-0 rounded-full border border-border/50 bg-primary/10 flex items-center justify-center shadow-sm">
-                <Bot className="h-5 w-5 text-foreground opacity-80" />
-              </div>
-            )}
+        {messages.map((msg) => {
+          const researchRun = msg.run_id ? (runById.get(msg.run_id) ?? null) : null
 
-            <div className={cn(
-              "flex flex-col gap-2 max-w-[85%] text-[15px] px-5 py-3.5 shadow-sm transition-all relative overflow-hidden",
-              msg.role === 'user'
-                ? "bg-muted rounded-2xl rounded-tr-sm text-foreground hover:bg-muted/80 break-words whitespace-pre-wrap"
-                : "bg-transparent rounded-2xl leading-relaxed text-foreground"
-            )}>
-              {msg.role === 'assistant' && !msg.content ? null : (
-                msg.role === 'user' ? (
-                  <span className="leading-relaxed">{msg.content}</span>
-                ) : (
-                  <div className="leading-relaxed">
-                    <MarkdownContent content={msg.content} />
-                  </div>
-                )
+          return (
+            <div key={msg.message_id} className={cn("flex gap-4 w-full group", msg.role === 'user' ? "justify-end" : "justify-start")}>
+              {msg.role === 'assistant' && (
+                <div className="w-8 h-8 mt-0.5 shrink-0 rounded-full border border-border/50 bg-primary/10 flex items-center justify-center shadow-sm">
+                  <Bot className="h-5 w-5 text-foreground opacity-80" />
+                </div>
+              )}
+
+              <div className={cn(
+                "flex flex-col gap-2 max-w-[85%] text-[15px] px-5 py-3.5 shadow-sm transition-all relative overflow-hidden",
+                msg.role === 'user'
+                  ? "bg-muted rounded-2xl rounded-tr-sm text-foreground hover:bg-muted/80 break-words whitespace-pre-wrap"
+                  : "bg-transparent rounded-2xl leading-relaxed text-foreground"
+              )}>
+                {msg.role === 'assistant' && currentMode === 'research' && researchRun && (
+                  <ResearchProgressCard run={researchRun} />
+                )}
+
+                {msg.role === 'assistant' && !msg.content ? null : (
+                  msg.role === 'user' ? (
+                    <span className="leading-relaxed">{msg.content}</span>
+                  ) : (
+                    <div className="leading-relaxed">
+                      <MarkdownContent content={msg.content} />
+                    </div>
+                  )
+                )}
+              </div>
+
+              {msg.role === 'user' && (
+                <div className="w-8 h-8 mt-0.5 shrink-0 rounded-full bg-gradient-to-tr from-cyan-500 to-indigo-500 flex items-center justify-center text-white font-medium text-sm shadow-sm ring-2 ring-background border border-border/50">
+                  U
+                </div>
               )}
             </div>
+          )
+        })}
 
-            {msg.role === 'user' && (
-              <div className="w-8 h-8 mt-0.5 shrink-0 rounded-full bg-gradient-to-tr from-cyan-500 to-indigo-500 flex items-center justify-center text-white font-medium text-sm shadow-sm ring-2 ring-background border border-border/50">
-                U
-              </div>
-            )}
-          </div>
-        ))}
-
-        {isGenerating && !streamingAssistantPreview && (
+        {isGenerating && currentMode !== 'research' && !streamingAssistantPreview && (
           <div className="flex gap-4 w-full group justify-start animate-in fade-in slide-in-from-bottom-2 duration-500">
             <div className="w-8 h-8 mt-0.5 shrink-0 rounded-full border border-border/50 bg-primary/10 flex items-center justify-center shadow-sm">
               <Bot className="h-5 w-5 text-foreground opacity-80" />
@@ -169,7 +183,7 @@ export function ChatArea() {
           </div>
         )}
 
-        {isGenerating && streamingAssistantPreview && (
+        {isGenerating && currentMode !== 'research' && streamingAssistantPreview && (
           <div className="flex gap-4 w-full group justify-start animate-in fade-in duration-300">
             <div className="w-8 h-8 mt-0.5 shrink-0 rounded-full border border-border/50 bg-primary/10 flex items-center justify-center shadow-sm">
               <Bot className="h-5 w-5 text-foreground opacity-80" />
@@ -179,6 +193,29 @@ export function ChatArea() {
               <div className="leading-relaxed">
                 <MarkdownContent content={streamingAssistantPreview} />
               </div>
+            </div>
+          </div>
+        )}
+
+        {isGenerating && currentMode === 'research' && liveRun && (
+          <div className="flex gap-4 w-full group justify-start animate-in fade-in duration-300">
+            <div className="w-8 h-8 mt-0.5 shrink-0 rounded-full border border-border/50 bg-primary/10 flex items-center justify-center shadow-sm">
+              <Bot className="h-5 w-5 text-foreground opacity-80" />
+            </div>
+
+            <div className="flex max-w-[85%] flex-col gap-3 text-[15px] text-foreground">
+              <ResearchProgressCard
+                run={liveRun}
+                liveProgress={streamingProgress}
+                liveEvents={streamingRunEvents}
+                isLive
+              />
+
+              {streamingAssistantPreview && (
+                <div className="rounded-2xl leading-relaxed">
+                  <MarkdownContent content={streamingAssistantPreview} />
+                </div>
+              )}
             </div>
           </div>
         )}

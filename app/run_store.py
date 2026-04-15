@@ -15,8 +15,10 @@ from app.domain.models import (
     PersistedConversationMemory,
     ResearchConversationDetail,
     ResearchConversationSummary,
+    ResearchRunEvent,
     ResearchRequest,
     ResearchRunDetail,
+    ResearchRunHistoryEvent,
     ResearchRunSummary,
     RunStatus,
 )
@@ -93,6 +95,22 @@ class ResearchRunStore:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     completed_at TEXT
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS research_run_events (
+                    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    conversation_id TEXT NOT NULL,
+                    sequence_no INTEGER NOT NULL,
+                    event_type TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    message TEXT,
+                    progress_json TEXT,
+                    UNIQUE(run_id, sequence_no)
                 )
                 """
             )
@@ -406,6 +424,95 @@ class ResearchRunStore:
             connection.commit()
         return self._require_conversation(conversation_id), self._require_chat_turn(turn_id)
 
+    def append_run_event(self, run_id: str, event: ResearchRunEvent) -> ResearchRunHistoryEvent:
+        message = event.data.get("message")
+        progress = event.data.get("progress")
+        history_event = ResearchRunHistoryEvent(
+            event_type=event.type,
+            status=event.status,
+            timestamp=event.timestamp,
+            message=str(message) if isinstance(message, str) else None,
+            progress=progress,
+        )
+        with self._connect() as connection:
+            conversation_row = connection.execute(
+                """
+                SELECT conversation_id
+                FROM research_runs
+                WHERE run_id = ?
+                """,
+                (run_id,),
+            ).fetchone()
+            if conversation_row is None:
+                raise KeyError(run_id)
+            next_sequence = connection.execute(
+                """
+                SELECT COALESCE(MAX(sequence_no), 0) + 1
+                FROM research_run_events
+                WHERE run_id = ?
+                """,
+                (run_id,),
+            ).fetchone()[0]
+            connection.execute(
+                """
+                INSERT INTO research_run_events (
+                    run_id,
+                    conversation_id,
+                    sequence_no,
+                    event_type,
+                    status,
+                    timestamp,
+                    message,
+                    progress_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    conversation_row["conversation_id"],
+                    next_sequence,
+                    history_event.event_type,
+                    history_event.status,
+                    history_event.timestamp,
+                    history_event.message,
+                    json.dumps(
+                        history_event.progress.model_dump() if history_event.progress is not None else None,
+                        ensure_ascii=True,
+                        sort_keys=True,
+                    ),
+                ),
+            )
+            connection.commit()
+        return history_event
+
+    def list_run_events(self, run_id: str) -> list[ResearchRunHistoryEvent]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT event_type, status, timestamp, message, progress_json
+                FROM research_run_events
+                WHERE run_id = ?
+                ORDER BY sequence_no ASC
+                """,
+                (run_id,),
+            ).fetchall()
+        return [self._row_to_history_event(row) for row in rows]
+
+    def get_latest_run_event(self, run_id: str) -> ResearchRunHistoryEvent | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT event_type, status, timestamp, message, progress_json
+                FROM research_run_events
+                WHERE run_id = ?
+                ORDER BY sequence_no DESC
+                LIMIT 1
+                """,
+                (run_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_history_event(row)
+
     def get_run(self, run_id: str) -> ResearchRunDetail | None:
         with self._connect() as connection:
             row = connection.execute(
@@ -430,7 +537,7 @@ class ResearchRunStore:
             ).fetchone()
         if row is None:
             return None
-        return self._row_to_detail(row)
+        return self._row_to_detail(row, progress_events=self.list_run_events(run_id))
 
     def get_chat_turn(self, turn_id: str) -> ChatTurnDetail | None:
         with self._connect() as connection:
@@ -521,29 +628,37 @@ class ResearchRunStore:
             ]
             runs = []
             if row["mode"] == "research":
+                run_rows = connection.execute(
+                    """
+                    SELECT
+                        run_id,
+                        conversation_id,
+                        origin_message_id,
+                        assistant_message_id,
+                        parent_run_id,
+                        status,
+                        request_json,
+                        result_json,
+                        error_message,
+                        created_at,
+                        updated_at,
+                        completed_at
+                    FROM research_runs
+                    WHERE conversation_id = ?
+                    ORDER BY created_at ASC, rowid ASC
+                    """,
+                    (conversation_id,),
+                ).fetchall()
+                event_map = self._list_run_events_for_runs(
+                    connection,
+                    [run_row["run_id"] for run_row in run_rows],
+                )
                 runs = [
-                    self._row_to_detail(run_row)
-                    for run_row in connection.execute(
-                        """
-                        SELECT
-                            run_id,
-                            conversation_id,
-                            origin_message_id,
-                            assistant_message_id,
-                            parent_run_id,
-                            status,
-                            request_json,
-                            result_json,
-                            error_message,
-                            created_at,
-                            updated_at,
-                            completed_at
-                        FROM research_runs
-                        WHERE conversation_id = ?
-                        ORDER BY created_at ASC, rowid ASC
-                        """,
-                        (conversation_id,),
-                    ).fetchall()
+                    self._row_to_detail(
+                        run_row,
+                        progress_events=event_map.get(run_row["run_id"], []),
+                    )
+                    for run_row in run_rows
                 ]
         return self._build_conversation_detail(row, messages, runs)
 
@@ -611,6 +726,10 @@ class ResearchRunStore:
         with self._connect() as connection:
             connection.execute(
                 "DELETE FROM conversation_memory WHERE conversation_id = ?",
+                (conversation_id,),
+            )
+            connection.execute(
+                "DELETE FROM research_run_events WHERE conversation_id = ?",
                 (conversation_id,),
             )
             connection.execute(
@@ -1204,7 +1323,12 @@ class ResearchRunStore:
             updated_at=row["updated_at"],
         )
 
-    def _row_to_detail(self, row: sqlite3.Row) -> ResearchRunDetail:
+    def _row_to_detail(
+        self,
+        row: sqlite3.Row,
+        *,
+        progress_events: list[ResearchRunHistoryEvent] | None = None,
+    ) -> ResearchRunDetail:
         request = ResearchRequest.model_validate(json.loads(row["request_json"]))
         result = json.loads(row["result_json"]) if row["result_json"] else None
         warnings: list[str] = []
@@ -1223,6 +1347,7 @@ class ResearchRunStore:
             request=request,
             result=result,
             warnings=warnings,
+            progress_events=progress_events or [],
             error_message=row["error_message"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
@@ -1231,7 +1356,9 @@ class ResearchRunStore:
 
     def _row_to_summary(self, row: sqlite3.Row) -> ResearchRunSummary:
         detail = self._row_to_detail(row)
-        return ResearchRunSummary.model_validate(detail.model_dump(exclude={"result", "warnings"}))
+        return ResearchRunSummary.model_validate(
+            detail.model_dump(exclude={"result", "warnings", "progress_events"}),
+        )
 
     def _row_to_chat_turn_detail(self, row: sqlite3.Row) -> ChatTurnDetail:
         request = ChatRequest.model_validate(json.loads(row["request_json"]))
@@ -1251,3 +1378,35 @@ class ResearchRunStore:
     def _row_to_chat_turn_summary(self, row: sqlite3.Row) -> ChatTurnSummary:
         detail = self._row_to_chat_turn_detail(row)
         return ChatTurnSummary.model_validate(detail.model_dump())
+
+    def _row_to_history_event(self, row: sqlite3.Row) -> ResearchRunHistoryEvent:
+        progress = json.loads(row["progress_json"]) if row["progress_json"] else None
+        return ResearchRunHistoryEvent(
+            event_type=row["event_type"],
+            status=row["status"],
+            timestamp=row["timestamp"],
+            message=row["message"],
+            progress=progress,
+        )
+
+    def _list_run_events_for_runs(
+        self,
+        connection: sqlite3.Connection,
+        run_ids: list[str],
+    ) -> dict[str, list[ResearchRunHistoryEvent]]:
+        if not run_ids:
+            return {}
+        placeholders = ", ".join("?" for _ in run_ids)
+        rows = connection.execute(
+            f"""
+            SELECT run_id, event_type, status, timestamp, message, progress_json
+            FROM research_run_events
+            WHERE run_id IN ({placeholders})
+            ORDER BY run_id ASC, sequence_no ASC
+            """,
+            run_ids,
+        ).fetchall()
+        event_map: dict[str, list[ResearchRunHistoryEvent]] = {run_id: [] for run_id in run_ids}
+        for row in rows:
+            event_map.setdefault(row["run_id"], []).append(self._row_to_history_event(row))
+        return event_map

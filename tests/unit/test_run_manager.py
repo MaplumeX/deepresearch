@@ -60,6 +60,8 @@ class ResearchRunManagerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(created.status, "queued")
         self.assertEqual(stored.status, "completed")
         self.assertEqual(stored.result["final_report"], "# Final")
+        self.assertEqual(stored.progress_events[0].progress.phase, "queued")
+        self.assertEqual(stored.progress_events[-1].progress.phase, "completed")
         self.assertEqual(len(conversation.messages), 2)
         self.assertEqual(conversation.messages[-1].content, "# Final")
 

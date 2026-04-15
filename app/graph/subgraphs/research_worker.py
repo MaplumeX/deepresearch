@@ -6,7 +6,9 @@ from langgraph.graph import END, START, StateGraph
 
 from app.domain.models import AcquiredContent, ResearchRequest, ResearchTask, SearchHit, SourceDocument
 from app.config import get_settings
+from app.runtime_progress import emit_progress
 from app.services.research_quality import build_task_outcome
+from app.services.research_progress import build_counts, build_progress_payload, build_task_progress
 from app.services.research_worker import build_task_evidence, filter_acquired_contents, rank_search_hits, rewrite_queries
 from app.tools.extract import extract_sources
 from app.tools.fetch import acquire_contents
@@ -16,6 +18,9 @@ from app.tools.search import search_web
 class ResearchWorkerState(TypedDict, total=False):
     request: dict
     task: dict
+    task_index: int
+    task_total: int
+    iteration_count: int
     queries: list[str]
     search_hits: list[dict]
     acquired_contents: list[dict]
@@ -34,13 +39,54 @@ def _request_from_state(state: ResearchWorkerState) -> ResearchRequest:
     return ResearchRequest.model_validate(state["request"])
 
 
-def rewrite_queries_node(state: ResearchWorkerState) -> dict:
+def _emit_worker_progress(
+    state: ResearchWorkerState,
+    config: dict | None,
+    *,
+    worker_step: str,
+    message: str,
+    search_hits: int | None = None,
+    acquired_contents: int | None = None,
+    kept_sources: int | None = None,
+    evidence_count: int | None = None,
+) -> None:
+    request = _request_from_state(state)
+    emit_progress(
+        config,
+        {
+            "message": message,
+            "progress": build_progress_payload(
+                "executing_tasks",
+                iteration=state.get("iteration_count"),
+                max_iterations=request.max_iterations,
+                task=build_task_progress(
+                    state.get("task"),
+                    index=state.get("task_index"),
+                    total=state.get("task_total"),
+                    status="running",
+                    worker_step=worker_step,
+                ),
+                counts=build_counts(
+                    planned_tasks=state.get("task_total"),
+                    search_hits=search_hits,
+                    acquired_contents=acquired_contents,
+                    kept_sources=kept_sources,
+                    evidence_count=evidence_count,
+                ),
+            ).model_dump(),
+        },
+    )
+
+
+def rewrite_queries_node(state: ResearchWorkerState, config: dict | None = None) -> dict:
+    _emit_worker_progress(state, config, worker_step="rewrite_queries", message="Rewriting search queries for the current task.")
     task = _task_from_state(state)
     request = _request_from_state(state)
     return {"queries": rewrite_queries(task, request)}
 
 
-async def search_and_rank_node(state: ResearchWorkerState) -> dict:
+async def search_and_rank_node(state: ResearchWorkerState, config: dict | None = None) -> dict:
+    _emit_worker_progress(state, config, worker_step="search_and_rank", message="Searching the web and ranking candidate sources.")
     task = _task_from_state(state)
     queries = state.get("queries", [])
     settings = get_settings()
@@ -50,7 +96,14 @@ async def search_and_rank_node(state: ResearchWorkerState) -> dict:
     return {"search_hits": [hit.model_dump() for hit in ranked_hits]}
 
 
-async def acquire_and_filter_node(state: ResearchWorkerState) -> dict:
+async def acquire_and_filter_node(state: ResearchWorkerState, config: dict | None = None) -> dict:
+    _emit_worker_progress(
+        state,
+        config,
+        worker_step="acquire_and_filter",
+        message="Fetching and filtering source contents.",
+        search_hits=len(state.get("search_hits", [])),
+    )
     task = _task_from_state(state)
     settings = get_settings()
     hits = [SearchHit.model_validate(item) for item in state.get("search_hits", [])]
@@ -59,7 +112,15 @@ async def acquire_and_filter_node(state: ResearchWorkerState) -> dict:
     return {"acquired_contents": [item.model_dump() for item in filtered_contents]}
 
 
-def extract_and_score_node(state: ResearchWorkerState) -> dict:
+def extract_and_score_node(state: ResearchWorkerState, config: dict | None = None) -> dict:
+    _emit_worker_progress(
+        state,
+        config,
+        worker_step="extract_and_score",
+        message="Extracting evidence and scoring sources.",
+        search_hits=len(state.get("search_hits", [])),
+        acquired_contents=len(state.get("acquired_contents", [])),
+    )
     task = _task_from_state(state)
     contents = [AcquiredContent.model_validate(item) for item in state.get("acquired_contents", [])]
     sources = extract_sources(contents)
@@ -70,7 +131,17 @@ def extract_and_score_node(state: ResearchWorkerState) -> dict:
     }
 
 
-def emit_results_node(state: ResearchWorkerState) -> dict:
+def emit_results_node(state: ResearchWorkerState, config: dict | None = None) -> dict:
+    _emit_worker_progress(
+        state,
+        config,
+        worker_step="emit_results",
+        message="Emitting normalized task results.",
+        search_hits=len(state.get("search_hits", [])),
+        acquired_contents=len(state.get("acquired_contents", [])),
+        kept_sources=len(state.get("sources", [])),
+        evidence_count=len(state.get("findings", [])),
+    )
     task = _task_from_state(state)
     queries = list(state.get("queries", []))
     search_hits = [SearchHit.model_validate(item) for item in state.get("search_hits", [])]
@@ -121,12 +192,17 @@ def build_research_worker_graph():
 _RESEARCH_WORKER_GRAPH = build_research_worker_graph()
 
 
-async def research_worker(state: dict) -> dict:
+async def research_worker(state: dict, config: dict | None = None) -> dict:
     result = await _RESEARCH_WORKER_GRAPH.ainvoke(
         {
             "request": state["request"],
             "task": state["task"],
+            "task_index": state.get("task_index"),
+            "task_total": state.get("task_total"),
+            "iteration_count": state.get("iteration_count"),
         }
+        ,
+        config=config,
     )
     return {
         "raw_findings": result.get("raw_findings", []),

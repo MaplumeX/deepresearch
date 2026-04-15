@@ -140,7 +140,16 @@ def emit_results_node(state: dict) -> dict
   "error_message": "string or null",
   "created_at": "ISO-8601 timestamp",
   "updated_at": "ISO-8601 timestamp",
-  "completed_at": "ISO-8601 timestamp or null"
+  "completed_at": "ISO-8601 timestamp or null",
+  "progress_events": [
+    {
+      "event_type": "run.created | run.status_changed | run.progress | run.interrupted | run.completed | run.failed | run.resumed",
+      "status": "queued | running | interrupted | completed | failed",
+      "timestamp": "ISO-8601 timestamp",
+      "message": "string or null",
+      "progress": "structured progress payload or null"
+    }
+  ]
 }
 ```
 
@@ -328,6 +337,33 @@ Required tests and assertion points for this contract:
   "timestamp": "ISO-8601 timestamp",
   "data": {
     "message": "optional string",
+    "progress": {
+      "phase": "queued | clarifying_scope | planning | executing_tasks | merging_evidence | checking_gaps | replanning | synthesizing | auditing | awaiting_review | finalizing | completed | failed",
+      "phase_label": "human-readable label",
+      "iteration": "int or null",
+      "max_iterations": "int or null",
+      "task": {
+        "task_id": "string",
+        "title": "string",
+        "index": "int >= 1",
+        "total": "int >= 1",
+        "status": "pending | running | done | failed",
+        "worker_step": "rewrite_queries | search_and_rank | acquire_and_filter | extract_and_score | emit_results | null"
+      },
+      "counts": {
+        "planned_tasks": "int or null",
+        "completed_tasks": "int or null",
+        "search_hits": "int or null",
+        "acquired_contents": "int or null",
+        "kept_sources": "int or null",
+        "evidence_count": "int or null",
+        "warnings": "int or null"
+      },
+      "review": {
+        "required": "bool",
+        "kind": "human_review | null"
+      }
+    },
     "run": "optional run detail snapshot",
     "conversation": "optional conversation summary snapshot",
     "assistant_message": "optional assistant message snapshot for the affected run"
@@ -387,6 +423,18 @@ research_runs(
   created_at,
   updated_at,
   completed_at nullable
+)
+
+research_run_events(
+  event_id PK,
+  run_id,
+  conversation_id,
+  sequence_no,
+  event_type,
+  status,
+  timestamp,
+  message nullable,
+  progress_json nullable
 )
 
 chat_turns(
@@ -550,7 +598,7 @@ REQUIRE_HUMAN_REVIEW     optional bool, defaults to false
 | resume API -> runtime | `approved`, optional `edited_report` | run must be in `interrupted` status before resume | return 409 if client resumes a non-interrupted run |
 | runtime -> checkpoint saver | `CHECKPOINT_DB_PATH` and runtime sqlite dependency set | runtime adapter must patch `aiosqlite.Connection.is_alive()` when the installed `aiosqlite` version no longer exposes it but `langgraph-checkpoint-sqlite` still probes it | fail the run with a surfaced runtime error if checkpoint initialization still cannot complete after compatibility patching |
 | store migration -> legacy runs | rows created before conversation support | missing conversation/message linkage is backfilled into one-run-one-conversation threads during initialization | preserve historical runs instead of dropping them or returning partial conversation payloads |
-| SSE endpoint -> frontend | `run_id` event stream | run must exist and payload must stay JSON-safe | send keep-alive comments while waiting; close after terminal states; include enough conversation metadata for cache patching |
+| SSE endpoint -> frontend | `run_id` event stream | run must exist and payload must stay JSON-safe | send keep-alive comments while waiting; close after terminal states including `interrupted`; include enough conversation metadata for cache patching and a structured `progress` payload for live cards |
 
 ### 5. Good/Base/Bad Cases
 

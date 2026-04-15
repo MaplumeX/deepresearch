@@ -38,8 +38,10 @@ Questions to answer:
 ## Common Patterns
 
 - Use narrow string unions for run status and event type
+- Mirror structured research progress payloads in `web/src/types/research.ts` instead of leaving SSE `data.progress` as `unknown`
 - Wrap API envelopes such as `{ run }`, `{ runs }`, and `{ conversation }` in explicit interfaces
 - Model thread data as `conversation + messages + runs`; avoid flattening assistant content into ad-hoc component props
+- Treat historical replay as `run.progress_events`, not as UI-only reconstructed state
 - Convert `run.result` access through small helper functions when fields are optional or heterogeneous
 - Mirror evolving report payloads in `web/src/types/research.ts` with explicit interfaces such as `StructuredReport` and `ResearchRunResult`
 - Put report decoding and backward-compatibility fallbacks in `web/src/lib/` helpers instead of branching over raw nested payloads inside route components

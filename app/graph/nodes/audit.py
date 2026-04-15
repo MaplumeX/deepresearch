@@ -4,11 +4,13 @@ from pydantic import ValidationError
 
 from app.config import get_settings
 from app.domain.models import QualityGateResult, StructuredReport
+from app.runtime_progress import emit_progress
 from app.services.citations import find_missing_citations, has_citations
+from app.services.research_progress import build_counts, build_progress_payload
 from app.services.report_contract import derive_structured_report
 
 
-def citation_audit(state: dict) -> dict:
+def citation_audit(state: dict, config: dict | None = None) -> dict:
     warnings = list(state.get("warnings", []))
     draft_report = state.get("draft_report", "")
     sources = state.get("sources", {})
@@ -38,6 +40,26 @@ def citation_audit(state: dict) -> dict:
     settings = get_settings()
     quality_gate = QualityGateResult.model_validate(state.get("quality_gate", {}))
     requires_review = bool(missing) or bool(_blocking_structural_warnings(structural_warnings))
+    emit_progress(
+        config,
+        {
+            "message": "Auditing citations and report structure.",
+            "progress": build_progress_payload(
+                "auditing",
+                iteration=state.get("iteration_count"),
+                max_iterations=state.get("request", {}).get("max_iterations"),
+                counts=build_counts(
+                    planned_tasks=len(state.get("tasks", [])),
+                    completed_tasks=len(state.get("task_outcomes", [])),
+                    kept_sources=len(sources),
+                    evidence_count=len(findings),
+                    warnings=len(warnings),
+                ),
+                review_required=requires_review or quality_gate.requires_review or settings.require_human_review,
+                review_kind="human_review" if (requires_review or quality_gate.requires_review or settings.require_human_review) else None,
+            ).model_dump(),
+        },
+    )
     return {
         "warnings": warnings,
         "review_required": (

@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from app.config import get_settings
 from app.domain.models import ConversationMemoryPayload, QualityGateResult
 from app.graph.builder import build_graph
+from app.runtime_progress import register_progress_listener, unregister_progress_listener
 
 
 def build_initial_state(
@@ -42,28 +43,36 @@ async def run_research(
     request_payload: dict[str, Any],
     run_id: str,
     memory: dict[str, Any] | None = None,
+    on_progress=None,
 ) -> dict[str, Any]:
     settings = get_settings()
     config = {"configurable": {"thread_id": run_id}}
     async with _open_checkpointer(settings.checkpoint_db_path) as checkpointer:
         graph = build_graph(checkpointer=checkpointer)
-        result = await graph.ainvoke(
-            build_initial_state(request_payload, memory),
-            config=config,
-        )
-        return await _read_graph_snapshot(graph, config, result)
+        register_progress_listener(run_id, on_progress)
+        try:
+            result = await graph.ainvoke(
+                build_initial_state(request_payload, memory),
+                config=config,
+            )
+            return await _read_graph_snapshot(graph, config, result)
+        finally:
+            unregister_progress_listener(run_id, on_progress)
 
-
-async def resume_research(run_id: str, resume_payload: dict[str, Any]) -> dict[str, Any]:
+async def resume_research(run_id: str, resume_payload: dict[str, Any], on_progress=None) -> dict[str, Any]:
     settings = get_settings()
     config = {"configurable": {"thread_id": run_id}}
     async with _open_checkpointer(settings.checkpoint_db_path) as checkpointer:
         graph = build_graph(checkpointer=checkpointer)
-        result = await graph.ainvoke(
-            Command(resume=resume_payload),
-            config=config,
-        )
-        return await _read_graph_snapshot(graph, config, result)
+        register_progress_listener(run_id, on_progress)
+        try:
+            result = await graph.ainvoke(
+                Command(resume=resume_payload),
+                config=config,
+            )
+            return await _read_graph_snapshot(graph, config, result)
+        finally:
+            unregister_progress_listener(run_id, on_progress)
 
 
 @asynccontextmanager

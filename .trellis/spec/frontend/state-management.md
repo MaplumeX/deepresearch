@@ -14,7 +14,7 @@ We use **Zustand** as our primary state management solution to handle both globa
 
 - **Local state**: Transient form edits (e.g. `ChatInput` textarea value) and local UI variants.
 - **URL state**: Not actively used in the current SPA design, conversation ID is managed globally inside the active store context.
-- **Server state / Realtime state**: Conversation list, active conversation messages, and real-time SSE streaming are managed collectively inside the Zustand store (`useChatStore`).
+- **Server state / Realtime state**: Conversation list, active conversation messages, persisted run progress history, and real-time SSE streaming are managed collectively inside the Zustand store (`useChatStore`).
 
 ## Conversation Mode Semantics
 
@@ -41,6 +41,10 @@ We use **Zustand** as our primary state management solution to handle both globa
 - SSE endpoints remain mode-specific because the runtime objects are different: research uses `/api/research/runs/{run_id}/events`, chat uses `/api/chat/turns/{turn_id}/events`.
 - Only one active stream may exist at a time. Switching conversations or returning to the new-chat state must close the previous stream before updating local state.
 - Upon SSE reaching terminal limits (`completed`, `failed`, `interrupted`), the SSE subscription is locally closed, and the store dispatches a definitive reload of the conversation detail to lock in the final assistant message.
+- Research-mode live state is split into two layers:
+  - persisted `conversation.runs[*].progress_events` for static replay when reopening history
+  - ephemeral `streamingProgress` / `streamingRunEvents` for the currently active SSE stream before the terminal reload lands
+- Research progress cards are run-scoped UI blocks rendered from `message.run_id`; do not flatten progress into ad-hoc per-message local state.
 
 ---
 

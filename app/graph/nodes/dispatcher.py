@@ -21,8 +21,10 @@ def route_research_tasks(state: dict):
             {
                 "request": state["request"],
                 "task": task,
+                "task_index": index,
+                "task_total": len(tasks),
+                "iteration_count": state.get("iteration_count"),
             },
         )
-        for task in tasks
+        for index, task in enumerate(tasks, start=1)
     ]
-

@@ -1,0 +1,5 @@
+{"file": ".gemini/commands/trellis/finish-work.toml", "reason": "Finish work checklist"}
+{"file": ".gemini/commands/trellis/check.toml", "reason": "Code quality check spec"}
+{"file": ".trellis/spec/backend/research-agent-runtime.md", "reason": "Verify runtime and SSE contract coverage"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify end-to-end payload flow"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Verify mirrored frontend event types"}

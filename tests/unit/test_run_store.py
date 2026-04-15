@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.domain.models import MemoryFact, PersistedConversationMemory
+from app.domain.models import MemoryFact, PersistedConversationMemory, ResearchRunEvent
 from app.run_store import ResearchRunStore
 
 
@@ -124,6 +124,57 @@ class ResearchRunStoreTest(unittest.TestCase):
         self.assertEqual(updated.result["draft_report"], "# Draft")
         self.assertIsNotNone(assistant_message)
         self.assertEqual(assistant_message.content, "# Draft")
+
+    def test_append_run_event_persists_history_for_detail_and_conversation(self) -> None:
+        created = self.store.create_run(
+            "run-events",
+            {
+                "question": "Question",
+                "output_language": "zh-CN",
+            },
+        )
+
+        self.store.append_run_event(
+            "run-events",
+            ResearchRunEvent(
+                type="run.progress",
+                run_id="run-events",
+                status="running",
+                timestamp="2026-04-15T00:00:00+00:00",
+                data={
+                    "message": "Planning research tasks.",
+                    "progress": {
+                        "phase": "planning",
+                        "phase_label": "Planning research",
+                        "iteration": 1,
+                        "max_iterations": 2,
+                        "task": None,
+                        "counts": {
+                            "planned_tasks": 3,
+                            "completed_tasks": 0,
+                            "search_hits": None,
+                            "acquired_contents": None,
+                            "kept_sources": None,
+                            "evidence_count": None,
+                            "warnings": 0,
+                        },
+                        "review": {
+                            "required": False,
+                            "kind": None,
+                        },
+                    },
+                },
+            ),
+        )
+
+        run = self.store.get_run("run-events")
+        conversation = self.store.get_conversation(created.conversation_id)
+
+        self.assertIsNotNone(run)
+        self.assertEqual(len(run.progress_events), 1)
+        self.assertEqual(run.progress_events[0].message, "Planning research tasks.")
+        self.assertIsNotNone(conversation)
+        self.assertEqual(conversation.runs[0].progress_events[0].progress.phase, "planning")
 
     def test_upsert_and_get_conversation_memory(self) -> None:
         self.store.upsert_conversation_memory(
