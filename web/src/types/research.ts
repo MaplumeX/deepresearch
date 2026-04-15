@@ -100,12 +100,54 @@ export type ResearchProgressPayload = {
   review: ResearchReviewProgress
 }
 
+export type SourceCard = {
+  source_id: string
+  title: string
+  url: string
+  snippet: string
+  providers: string[]
+  acquisition_method: string | null
+  fetched_at: string
+  is_cited: boolean
+}
+
+export type CitationIndexEntry = SourceCard & {
+  cited_in_sections: string[]
+  occurrence_count: number
+  relevance_score: number | null
+  confidence: number | null
+}
+
+export type ReportSection = {
+  section_id: string
+  heading: string
+  body_markdown: string
+  cited_source_ids: string[]
+}
+
+export type StructuredReport = {
+  title: string
+  summary: string
+  markdown: string
+  sections: ReportSection[]
+  cited_source_ids: string[]
+  citation_index: CitationIndexEntry[]
+  source_cards: SourceCard[]
+}
+
 export type ResearchRunHistoryEvent = {
   event_type: RunEventType
   status: RunStatus
   timestamp: string
   message: string | null
   progress: ResearchProgressPayload | null
+}
+
+export type RunResult = {
+  final_report?: string
+  draft_report?: string
+  final_structured_report?: StructuredReport
+  draft_structured_report?: StructuredReport
 }
 
 export type RunDetail = {
@@ -116,7 +158,7 @@ export type RunDetail = {
   parent_run_id: string | null
   status: RunStatus
   request: ResearchRequestPayload
-  result: unknown | null
+  result: RunResult | null
   warnings: string[]
   error_message: string | null
   created_at: string

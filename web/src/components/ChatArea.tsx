@@ -4,10 +4,30 @@ import remarkGfm from 'remark-gfm'
 import { ScrollArea } from './ui/scroll-area'
 import { Bot, X } from 'lucide-react'
 import { ResearchProgressCard } from './ResearchProgressCard'
+import { CiteBadge } from './CiteBadge'
 import { cn } from '@/lib/utils'
 import { useChatStore } from '@/store/useChatStore'
+import type { SourceCard } from '@/types/research'
 
-function MarkdownContent({ content }: { content: string }) {
+function buildCitationIndexMap(sourceCards?: SourceCard[]): Map<string, number> {
+  const map = new Map<string, number>()
+  sourceCards?.forEach((card, index) => {
+    map.set(card.source_id, index + 1)
+  })
+  return map
+}
+
+function processCitations(content: string, indexMap: Map<string, number>): string {
+  return content.replace(/\[S([^\]]+)\]/g, (_, id) => {
+    const sourceId = `S${id}`
+    const displayNumber = indexMap.get(sourceId) ?? sourceId
+    return `[${displayNumber}](#cite-${sourceId})`
+  })
+}
+
+function MarkdownContent({ content, sourceCards }: { content: string; sourceCards?: SourceCard[] }) {
+  const sourceMap = new Map(sourceCards?.map((s) => [s.source_id, s]))
+  const indexMap = buildCitationIndexMap(sourceCards)
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
@@ -32,11 +52,18 @@ function MarkdownContent({ content }: { content: string }) {
           )
         },
         pre: ({ children }) => <>{children}</>,
-        a: ({ children, href }) => (
-          <a href={href} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2 hover:text-primary/80">
-            {children}
-          </a>
-        ),
+        a: ({ children, href }) => {
+          if (typeof href === 'string' && href.startsWith('#cite-')) {
+            const sourceId = href.slice(6)
+            const displayText = typeof children === 'string' ? children : sourceId
+            return <CiteBadge sourceId={sourceId} displayText={displayText} source={sourceMap.get(sourceId)} />
+          }
+          return (
+            <a href={href} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2 hover:text-primary/80">
+              {children}
+            </a>
+          )
+        },
         blockquote: ({ children }) => (
           <blockquote className="border-l-2 border-muted-foreground/30 pl-3 italic text-muted-foreground my-2">
             {children}
@@ -59,7 +86,7 @@ function MarkdownContent({ content }: { content: string }) {
         hr: () => <hr className="my-3 border-border" />,
       }}
     >
-      {content}
+      {processCitations(content, indexMap)}
     </ReactMarkdown>
   )
 }
@@ -129,6 +156,10 @@ export function ChatArea() {
 
         {messages.map((msg) => {
           const researchRun = msg.run_id ? (runById.get(msg.run_id) ?? null) : null
+          const structuredReport = researchRun?.result?.final_structured_report
+            ?? researchRun?.result?.draft_structured_report
+            ?? null
+          const sourceCards = structuredReport?.source_cards
 
           return (
             <div key={msg.message_id} className={cn("flex gap-4 w-full group", msg.role === 'user' ? "justify-end" : "justify-start")}>
@@ -153,7 +184,7 @@ export function ChatArea() {
                     <span className="leading-relaxed">{msg.content}</span>
                   ) : (
                     <div className="leading-relaxed">
-                      <MarkdownContent content={msg.content} />
+                      <MarkdownContent content={msg.content} sourceCards={sourceCards} />
                     </div>
                   )
                 )}
@@ -213,7 +244,11 @@ export function ChatArea() {
 
               {streamingAssistantPreview && (
                 <div className="rounded-2xl leading-relaxed">
-                  <MarkdownContent content={streamingAssistantPreview} />
+                  <MarkdownContent
+                    content={streamingAssistantPreview}
+                    sourceCards={liveRun.result?.final_structured_report?.source_cards
+                      ?? liveRun.result?.draft_structured_report?.source_cards}
+                  />
                 </div>
               )}
             </div>
