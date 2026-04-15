@@ -435,6 +435,10 @@ class ResearchRunStore:
             progress=progress,
         )
         with self._connect() as connection:
+            # Parallel research workers can emit progress for the same run at the same time.
+            # Reserve the write lock before reading MAX(sequence_no) so each append observes
+            # the latest committed event and assigns a unique per-run sequence number.
+            connection.execute("BEGIN IMMEDIATE")
             conversation_row = connection.execute(
                 """
                 SELECT conversation_id

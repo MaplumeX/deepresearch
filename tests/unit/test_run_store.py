@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -175,6 +177,62 @@ class ResearchRunStoreTest(unittest.TestCase):
         self.assertEqual(run.progress_events[0].message, "Planning research tasks.")
         self.assertIsNotNone(conversation)
         self.assertEqual(conversation.runs[0].progress_events[0].progress.phase, "planning")
+
+    def test_append_run_event_handles_concurrent_progress_updates(self) -> None:
+        self.store.create_run(
+            "run-events-concurrent",
+            {
+                "question": "Question",
+                "output_language": "zh-CN",
+            },
+        )
+        worker_count = 24
+        barrier = threading.Barrier(worker_count)
+
+        def append_event(index: int) -> None:
+            barrier.wait(timeout=5)
+            self.store.append_run_event(
+                "run-events-concurrent",
+                ResearchRunEvent(
+                    type="run.progress",
+                    run_id="run-events-concurrent",
+                    status="running",
+                    timestamp=f"2026-04-15T00:00:{index:02d}+00:00",
+                    data={
+                        "message": f"Progress event {index}",
+                    },
+                ),
+            )
+
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = [executor.submit(append_event, index) for index in range(worker_count)]
+            for future in as_completed(futures):
+                future.result()
+
+        run = self.store.get_run("run-events-concurrent")
+
+        self.assertIsNotNone(run)
+        self.assertEqual(len(run.progress_events), worker_count)
+        self.assertEqual(
+            {event.message for event in run.progress_events},
+            {f"Progress event {index}" for index in range(worker_count)},
+        )
+
+        with self.store._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT sequence_no
+                FROM research_run_events
+                WHERE run_id = ?
+                ORDER BY sequence_no ASC
+                """,
+                ("run-events-concurrent",),
+            ).fetchall()
+
+        self.assertEqual(
+            [row["sequence_no"] for row in rows],
+            list(range(1, worker_count + 1)),
+        )
 
     def test_upsert_and_get_conversation_memory(self) -> None:
         self.store.upsert_conversation_memory(
