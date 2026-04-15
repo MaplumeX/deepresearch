@@ -214,6 +214,93 @@ Implementation path for the structured report contract:
 - `web/src/types/research.ts` mirrors the backend payload shape.
 - `web/src/lib/report.ts` is the frontend boundary for reading and linkifying report payloads.
 
+Synthesis budget and staged generation contract:
+
+#### Scope / Trigger
+
+- Trigger: `app/services/synthesis.py` changes that affect prompt size, section generation strategy, or `Settings` env keys controlling synthesis limits.
+- Scope: `app/config.py`, `app/services/synthesis.py`, `app/graph/nodes/synthesize.py`, and `tests/unit/test_synthesis.py`.
+
+#### Signatures
+
+```python
+def synthesize_report(
+    question: str,
+    tasks: list[dict],
+    findings: list[dict],
+    sources: dict[str, dict],
+    settings: Settings,
+    memory: dict[str, Any] | None = None,
+) -> StructuredReport
+
+def _build_compact_payload(
+    question: str,
+    tasks: list[dict],
+    findings: list[dict],
+    sources: dict[str, dict],
+    memory_brief: str,
+    *,
+    heading: str | None = None,
+    purpose: str | None = None,
+    focus: str | None = None,
+) -> CompactPayload
+
+def _maybe_synthesize_single_call(
+    question: str,
+    payload: CompactPayload,
+    settings: Settings,
+) -> ReportDraft | None
+
+def _maybe_synthesize_multi_stage(
+    question: str,
+    tasks: list[dict],
+    findings: list[dict],
+    sources: dict[str, dict],
+    settings: Settings,
+    memory_brief: str,
+) -> ReportDraft | None
+```
+
+#### Contracts
+
+Runtime env keys in `app/config.py`:
+
+```text
+SYNTHESIS_SOFT_CHAR_LIMIT
+SYNTHESIS_HARD_CHAR_LIMIT
+SYNTHESIS_MAX_FINDINGS_PER_CALL
+SYNTHESIS_MAX_SOURCES_PER_CALL
+```
+
+Compact payload rules:
+
+- `_build_compact_payload()` is the only allowed path for LLM synthesis input in `app/services/synthesis.py`.
+- `CompactPayload.sources[*]` must contain only:
+  `source_id`, `title`, `url`, `snippet`, `providers`, `source_role`
+- `CompactPayload.findings[*]` must contain only:
+  `task_id`, `source_id`, `claim`, `snippet`, `evidence_type`, `source_role`, `confidence`, `relevance_score`, `title`, `url`
+- Raw `sources[*].content` must not be passed through to the prompt as a top-level field. If no snippet exists, a trimmed fallback snippet may be derived from content inside `_build_compact_sources()`.
+
+Routing rules:
+
+- If `payload.estimated_size <= settings.synthesis_soft_char_limit` and the payload stays within `synthesis_max_findings_per_call` plus `synthesis_max_sources_per_call`, `synthesize_report()` may call `_maybe_synthesize_single_call()`.
+- If the compact payload exceeds the soft limit or record-count limits, `synthesize_report()` must switch to `_maybe_synthesize_multi_stage()`.
+- Multi-stage synthesis must split by semantic section first, not by arbitrary character ranges. Current section headings are:
+  `Key Findings`, `Evidence and Examples`, `Risks and Limitations`, `Open Questions`
+- If a section chunk still exceeds `settings.synthesis_hard_char_limit`, that chunk must skip the LLM call and fall back to deterministic section rendering.
+- `build_structured_report()` still receives the original `sources` and `findings` so citation auditing and source cards remain based on canonical state, not the compact prompt payload.
+
+#### Validation & Error Matrix
+
+| Condition | Validation point | Behavior |
+|-----------|------------------|----------|
+| `findings` is empty | `synthesize_report()` | skip LLM synthesis and use deterministic fallback report |
+| compact payload exceeds `SYNTHESIS_SOFT_CHAR_LIMIT` or item-count limits | `_should_keep_payload_together()` | skip single-call synthesis and route to `_maybe_synthesize_multi_stage()` |
+| staged chunk exceeds `SYNTHESIS_HARD_CHAR_LIMIT` | `_can_invoke_payload()` | do not call the LLM for that chunk; render the section with deterministic fallback |
+| LLM import or invoke fails during single-call synthesis | `_maybe_synthesize_single_call()` | return `None`; caller must continue to staged synthesis or deterministic fallback |
+| LLM import or invoke fails during staged synthesis | `_maybe_synthesize_section_with_llm()` | return `None`; caller must render that section deterministically |
+| compact source payload includes raw `content` field | `tests/unit/test_synthesis.py::test_compact_payload_excludes_raw_source_content` | fail the unit test; this shape is forbidden |
+
 Structured report validation and error matrix:
 
 | Condition | Validation point | Warning / behavior | Review required |
@@ -230,21 +317,62 @@ Good / Base / Bad cases for this contract:
 
 - Good:
   `synthesize_report_node()` produces `draft_report` plus `draft_structured_report`, every evidence-bearing section contains `[S...]`, and `citation_index` / `source_cards` reflect the same cited sources.
+- Good:
+  synthesis input is compacted first, the report stays under prompt limits, and the LLM returns a single structured draft without exposing raw source content in the prompt payload.
 - Base:
   Human review edits markdown via `edited_report`; `human_review()` accepts the markdown and rebuilds `final_structured_report` with `derive_structured_report()` so the final payload is still structured.
+- Base:
+  single-call synthesis is too large, so `_maybe_synthesize_multi_stage()` generates section drafts and deterministic merge logic assembles the final report while preserving citations.
 - Bad:
   Markdown includes `"[Sdeadbeef]"` that does not exist in `sources`, or an analysis section omits citations while findings exist; `citation_audit()` must append warnings and set `review_required = True`.
+- Bad:
+  `app/services/synthesis.py` sends the entire `sources` dict including full `content` bodies directly to the LLM, which can trigger upstream `Input length exceeds the maximum length` failures and breaks the compact-payload contract.
 
 Required tests and assertion points for this contract:
 
 - `tests/unit/test_synthesis.py`
   Assert synthesis output includes `markdown`, `sections`, `citation_index`, and `source_cards`.
+- `tests/unit/test_synthesis.py`
+  Assert `_build_compact_payload()` excludes raw source `content` from prompt payloads.
+- `tests/unit/test_synthesis.py`
+  Assert synthesis switches to staged generation when `synthesis_soft_char_limit` is exceeded.
+- `tests/unit/test_config.py`
+  Assert synthesis budget env defaults load from `Settings`.
 - `tests/unit/test_audit.py`
   Assert missing section citations trigger warnings and `review_required = True`.
 - `web/src/lib/report.test.ts`
   Assert frontend readers decode structured payloads and linkify inline citations.
 - `web/src/components/StructuredReportView.test.tsx`
   Assert the detail UI renders sections, source anchors, and cited source cards from the structured payload.
+
+#### Wrong vs Correct
+
+Wrong:
+
+```python
+chain.invoke(
+    {
+        "question": question,
+        "tasks": tasks,
+        "findings": findings,
+        "sources": sources,
+    }
+)
+```
+
+- Problem: full source bodies leak into the prompt, prompt size becomes unbounded, and a long run can fail before report generation starts.
+
+Correct:
+
+```python
+payload = _build_compact_payload(question, tasks, findings, sources, memory_brief)
+if _should_keep_payload_together(payload, settings):
+    drafted = _maybe_synthesize_single_call(question, payload, settings)
+else:
+    drafted = _maybe_synthesize_multi_stage(question, tasks, findings, sources, settings, memory_brief)
+```
+
+- Reason: prompt size is bounded before LLM invocation, single-call synthesis remains the fast path, and large reports degrade to staged synthesis instead of provider-side length errors.
 
 #### Conversation Message Contract
 

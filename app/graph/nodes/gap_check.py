@@ -16,7 +16,12 @@ def gap_check(state: dict, config: dict | None = None) -> dict:
         ResearchTaskOutcome.model_validate(item)
         for item in state.get("task_outcomes", [])
     ]
-    gaps = identify_research_gaps(tasks, task_outcomes)
+    gaps = identify_research_gaps(
+        tasks,
+        task_outcomes,
+        findings=list(state.get("findings", [])),
+        sources=dict(state.get("sources", {})),
+    )
     request = ResearchRequest.model_validate(state["request"])
     has_iteration_budget = state.get("iteration_count", 0) < request.max_iterations
     quality_gate = evaluate_quality_gate(

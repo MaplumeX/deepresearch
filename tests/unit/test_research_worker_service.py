@@ -2,12 +2,31 @@ from __future__ import annotations
 
 import unittest
 
+from app.config import Settings
 from app.domain.models import AcquiredContent, ResearchRequest, ResearchTask, SearchHit, SourceDocument
 from app.services.research_worker import build_task_evidence, filter_acquired_contents, rank_search_hits, rewrite_queries
 
 
 class ResearchWorkerServiceTest(unittest.TestCase):
     def setUp(self) -> None:
+        self.settings = Settings(
+            app_name="test",
+            planner_model="test-model",
+            synthesis_model="test-model",
+            llm_api_key=None,
+            llm_base_url=None,
+            tavily_api_key=None,
+            brave_api_key=None,
+            checkpoint_db_path="test.db",
+            runs_db_path="test-runs.db",
+            fetch_timeout_seconds=1.0,
+            default_max_iterations=2,
+            default_max_parallel_tasks=3,
+            search_max_results=3,
+            require_human_review=False,
+            enable_llm_planning=False,
+            enable_llm_synthesis=False,
+        )
         self.request = ResearchRequest(
             question="How should we upgrade the research worker?",
             scope="Focus on query rewriting and evidence scoring",
@@ -20,10 +39,11 @@ class ResearchWorkerServiceTest(unittest.TestCase):
         )
 
     def test_rewrite_queries_deduplicates_and_limits_results(self) -> None:
-        queries = rewrite_queries(self.task, self.request)
-        self.assertLessEqual(len(queries), 3)
+        queries = rewrite_queries(self.task, self.request, settings=self.settings)
+        self.assertLessEqual(len(queries), 6)
         self.assertEqual(len(queries), len(set(query.casefold() for query in queries)))
-        self.assertIn("Evidence scoring", queries[1])
+        self.assertTrue(any("evidence scoring" in query.casefold() for query in queries))
+        self.assertTrue(any("official" in query.casefold() for query in queries))
 
     def test_rank_search_hits_prefers_relevant_titles(self) -> None:
         ranked = rank_search_hits(
@@ -122,13 +142,15 @@ class ResearchWorkerServiceTest(unittest.TestCase):
                     acquisition_method="provider_raw_content",
                 )
             ],
+            settings=self.settings,
         )
-        self.assertEqual(len(findings), 1)
+        self.assertGreaterEqual(len(findings), 1)
         self.assertEqual(len(sources), 1)
         self.assertEqual(findings[0].source_id, "S1")
         self.assertGreater(findings[0].relevance_score, 0.2)
         self.assertGreater(findings[0].confidence, 0.3)
         self.assertIn("research worker evidence scoring rollout", findings[0].claim.casefold())
+        self.assertIn(findings[0].evidence_type, {"fact", "statistic", "example"})
 
 
 if __name__ == "__main__":

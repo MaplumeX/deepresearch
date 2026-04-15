@@ -82,7 +82,8 @@ def rewrite_queries_node(state: ResearchWorkerState, config: dict | None = None)
     _emit_worker_progress(state, config, worker_step="rewrite_queries", message="Rewriting search queries for the current task.")
     task = _task_from_state(state)
     request = _request_from_state(state)
-    return {"queries": rewrite_queries(task, request)}
+    settings = get_settings()
+    return {"queries": rewrite_queries(task, request, settings=settings)}
 
 
 async def search_and_rank_node(state: ResearchWorkerState, config: dict | None = None) -> dict:
@@ -90,7 +91,7 @@ async def search_and_rank_node(state: ResearchWorkerState, config: dict | None =
     task = _task_from_state(state)
     queries = state.get("queries", [])
     settings = get_settings()
-    candidate_limit = max(5, settings.search_max_results * 2)
+    candidate_limit = max(10, settings.search_max_results * 3)
     hits = await search_web(queries, max_results=candidate_limit)
     ranked_hits = rank_search_hits(task, hits, limit=candidate_limit)
     return {"search_hits": [hit.model_dump() for hit in ranked_hits]}
@@ -108,7 +109,8 @@ async def acquire_and_filter_node(state: ResearchWorkerState, config: dict | Non
     settings = get_settings()
     hits = [SearchHit.model_validate(item) for item in state.get("search_hits", [])]
     acquired_contents = await acquire_contents(hits)
-    filtered_contents = filter_acquired_contents(task, acquired_contents, limit=max(1, settings.search_max_results))
+    filtered_limit = min(6, max(2, settings.search_max_results + 2))
+    filtered_contents = filter_acquired_contents(task, acquired_contents, limit=filtered_limit)
     return {"acquired_contents": [item.model_dump() for item in filtered_contents]}
 
 
@@ -122,9 +124,10 @@ def extract_and_score_node(state: ResearchWorkerState, config: dict | None = Non
         acquired_contents=len(state.get("acquired_contents", [])),
     )
     task = _task_from_state(state)
+    settings = get_settings()
     contents = [AcquiredContent.model_validate(item) for item in state.get("acquired_contents", [])]
     sources = extract_sources(contents)
-    findings, kept_sources = build_task_evidence(task, sources)
+    findings, kept_sources = build_task_evidence(task, sources, settings=settings)
     return {
         "sources": [source.model_dump() for source in kept_sources],
         "findings": [finding.model_dump() for finding in findings],

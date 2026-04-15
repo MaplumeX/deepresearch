@@ -50,6 +50,10 @@ class ConfigTest(unittest.TestCase):
 
         self.assertEqual(settings.runs_db_path, "research_runs.db")
         self.assertIsNone(settings.brave_api_key)
+        self.assertEqual(settings.synthesis_soft_char_limit, 90000)
+        self.assertEqual(settings.synthesis_hard_char_limit, 110000)
+        self.assertEqual(settings.synthesis_max_findings_per_call, 24)
+        self.assertEqual(settings.synthesis_max_sources_per_call, 12)
 
 
 if __name__ == "__main__":

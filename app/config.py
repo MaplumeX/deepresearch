@@ -61,6 +61,10 @@ class Settings:
     require_human_review: bool
     enable_llm_planning: bool
     enable_llm_synthesis: bool
+    synthesis_soft_char_limit: int = 90000
+    synthesis_hard_char_limit: int = 110000
+    synthesis_max_findings_per_call: int = 24
+    synthesis_max_sources_per_call: int = 12
 
 
 @lru_cache(maxsize=1)
@@ -82,4 +86,8 @@ def get_settings() -> Settings:
         require_human_review=read_bool_env("REQUIRE_HUMAN_REVIEW", False),
         enable_llm_planning=read_bool_env("ENABLE_LLM_PLANNING", True),
         enable_llm_synthesis=read_bool_env("ENABLE_LLM_SYNTHESIS", True),
+        synthesis_soft_char_limit=int(os.getenv("SYNTHESIS_SOFT_CHAR_LIMIT", "90000")),
+        synthesis_hard_char_limit=int(os.getenv("SYNTHESIS_HARD_CHAR_LIMIT", "110000")),
+        synthesis_max_findings_per_call=int(os.getenv("SYNTHESIS_MAX_FINDINGS_PER_CALL", "24")),
+        synthesis_max_sources_per_call=int(os.getenv("SYNTHESIS_MAX_SOURCES_PER_CALL", "12")),
     )

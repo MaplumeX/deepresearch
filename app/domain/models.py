@@ -30,6 +30,9 @@ class ResearchPlan(BaseModel):
 
 ContentFormat = Literal["html", "text", "markdown"]
 AcquisitionMethod = Literal["provider_raw_content", "http_fetch", "search_snippet"]
+EvidenceType = Literal["definition", "fact", "statistic", "example", "comparison", "risk", "limitation", "trend"]
+SourceRole = Literal["official", "primary", "secondary", "commentary", "unknown"]
+GapType = Literal["missing_evidence", "weak_evidence", "low_source_diversity", "retrieval_failure", "coverage_gap"]
 
 
 class SearchHit(BaseModel):
@@ -72,6 +75,8 @@ class Evidence(BaseModel):
     source_id: str
     url: str
     title: str
+    evidence_type: "EvidenceType" = "fact"
+    source_role: "SourceRole" = "unknown"
     relevance_score: float = Field(default=0.5, ge=0, le=1)
     confidence: float = Field(default=0.5, ge=0, le=1)
 
@@ -128,7 +133,6 @@ class ReportDraft(BaseModel):
     sections: list[ReportSectionDraft] = Field(default_factory=list)
 
 
-GapType = Literal["missing_evidence", "weak_evidence", "low_source_diversity", "retrieval_failure"]
 GapSeverity = Literal["low", "medium", "high"]
 TaskQualityStatus = Literal["ok", "weak", "failed"]
 ResearchProgressPhase = Literal[

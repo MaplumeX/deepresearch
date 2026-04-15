@@ -18,6 +18,7 @@ _HEADING_PATTERN = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 _TITLE_PATTERN = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
 _SOURCES_HEADING = "sources"
 _CONTEXT_HEADING = "conversation context"
+_OPEN_QUESTIONS_HEADING = "open questions"
 _MAX_SNIPPET_LENGTH = 240
 
 
@@ -313,7 +314,7 @@ def _extract_section_citations(heading: str, body_markdown: str) -> list[str]:
 
 def _is_non_evidence_section(heading: str) -> bool:
     normalized = heading.strip().casefold()
-    return normalized in {_SOURCES_HEADING, _CONTEXT_HEADING}
+    return normalized in {_SOURCES_HEADING, _CONTEXT_HEADING, _OPEN_QUESTIONS_HEADING}
 
 
 def _is_summary_heading(heading: str) -> bool:

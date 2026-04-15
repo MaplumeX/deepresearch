@@ -109,7 +109,7 @@ def _validate_structured_report(report: StructuredReport, findings: list[dict]) 
         warnings.append("Executive summary does not include inline citations.")
 
     for section in report.sections:
-        if section.heading.casefold() in {"conversation context", "sources", "executive summary"}:
+        if section.heading.casefold() in {"conversation context", "sources", "open questions", "executive summary"}:
             continue
         if findings and section.body_markdown.strip() and not section.cited_source_ids:
             warnings.append(f"Section '{section.heading}' does not include inline citations.")

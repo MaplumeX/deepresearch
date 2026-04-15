@@ -1,13 +1,44 @@
 from __future__ import annotations
 
+import json
 from collections import defaultdict
+from dataclasses import dataclass
 from typing import Any
 
 from app.config import Settings
 from app.domain.models import ReportDraft, ReportSectionDraft, StructuredReport
-from app.services.conversation_memory import format_memory_for_prompt
+from app.services.conversation_memory import build_contextual_brief, format_memory_for_prompt
 from app.services.llm import build_chat_model, can_use_llm
 from app.services.report_contract import build_structured_report
+
+_SECTION_ORDER = (
+    "Key Findings",
+    "Evidence and Examples",
+    "Risks and Limitations",
+    "Open Questions",
+)
+_MAX_TASK_TITLE_LENGTH = 120
+_MAX_TASK_QUESTION_LENGTH = 220
+_MAX_CLAIM_LENGTH = 280
+_MAX_SNIPPET_LENGTH = 320
+_MAX_SOURCE_TITLE_LENGTH = 140
+_MAX_MEMORY_BRIEF_CHARS = 600
+
+
+@dataclass(frozen=True, slots=True)
+class CompactPayload:
+    tasks: list[dict[str, Any]]
+    findings: list[dict[str, Any]]
+    sources: dict[str, dict[str, Any]]
+    memory_brief: str
+    estimated_size: int
+
+
+@dataclass(frozen=True, slots=True)
+class SectionPlan:
+    heading: str
+    purpose: str
+    findings: list[dict[str, Any]]
 
 
 def _fallback_report(
@@ -15,32 +46,35 @@ def _fallback_report(
     tasks: list[dict],
     findings: list[dict],
 ) -> ReportDraft:
-    grouped: dict[str, list[dict]] = defaultdict(list)
-    titles = {task["task_id"]: task["title"] for task in tasks}
-    for finding in findings:
-        grouped[finding["task_id"]].append(finding)
-
-    summary_claims = findings[:3]
-    summary_lines = [
-        f"- {item['claim']} [{item['source_id']}]"
-        for item in summary_claims
-    ] or ["- No evidence was collected yet."]
-
     analysis_sections: list[ReportSectionDraft] = []
-    for task in tasks:
-        task_findings = grouped.get(task["task_id"], [])
-        lines = [
-            f"- {item['claim']} [{item['source_id']}]"
-            for item in task_findings
-        ] or ["- No evidence collected for this task."]
-        analysis_sections.append(
-            ReportSectionDraft(
-                heading=titles[task["task_id"]],
-                body_markdown="\n".join(lines),
-            )
-        )
+    for plan in _build_section_plans(findings):
+        section = _fallback_section(plan.heading, plan.findings)
+        if section is not None:
+            analysis_sections.append(section)
 
-    if not tasks:
+    open_questions = _build_open_questions_section(tasks, findings)
+    if open_questions is not None:
+        analysis_sections.append(open_questions)
+
+    if not analysis_sections and tasks:
+        grouped: dict[str, list[dict]] = defaultdict(list)
+        titles = {task["task_id"]: task["title"] for task in tasks}
+        for finding in findings:
+            grouped[str(finding.get("task_id", ""))].append(finding)
+        for task in tasks:
+            task_findings = grouped.get(task["task_id"], [])
+            lines = [
+                f"- {item['claim']} [{item['source_id']}]"
+                for item in _select_diverse_findings(_sort_findings_for_synthesis(task_findings), limit=4)
+            ] or ["- No evidence collected for this task."]
+            analysis_sections.append(
+                ReportSectionDraft(
+                    heading=titles[task["task_id"]],
+                    body_markdown="\n".join(lines),
+                )
+            )
+
+    if not tasks and not analysis_sections:
         analysis_sections.append(
             ReportSectionDraft(
                 heading="Analysis",
@@ -50,20 +84,17 @@ def _fallback_report(
 
     return ReportDraft(
         title="Research Report",
-        summary="\n".join(summary_lines),
+        summary="\n".join(_build_summary_lines(findings, limit=5)),
         sections=analysis_sections,
     )
 
 
-def _maybe_synthesize_with_llm(
+def _maybe_synthesize_single_call(
     question: str,
-    tasks: list[dict],
-    findings: list[dict],
-    sources: dict[str, dict],
+    payload: CompactPayload,
     settings: Settings,
-    memory: dict[str, Any] | None,
 ) -> ReportDraft | None:
-    if not settings.enable_llm_synthesis or not can_use_llm(settings) or not findings:
+    if not payload.findings:
         return None
 
     try:
@@ -73,26 +104,25 @@ def _maybe_synthesize_with_llm(
         return None
 
     parser = PydanticOutputParser(pydantic_object=ReportDraft)
-    memory_sections = format_memory_for_prompt(memory)
     prompt = ChatPromptTemplate.from_messages(
         [
             (
                 "system",
                 "You synthesize structured cited reports from validated evidence. "
-                "Conversation memory is background context only. "
-                "Never use conversation memory as a citation source. "
+                "Background context is not a citation source. "
                 "Keep all factual citations in the form [source_id]. "
-                "Return analysis sections only. Do not include a sources appendix.",
+                "Return analysis sections only. Do not include a sources appendix. "
+                "Aim for comprehensive coverage while staying grounded in the supplied evidence.",
             ),
             (
                 "human",
                 "Current question:\n{question}\n\n"
-                "Rolling summary:\n{rolling_summary}\n\n"
-                "Recent 5 turns:\n{recent_turns}\n\n"
-                "Known facts from older turns:\n{key_facts}\n\n"
-                "Open questions from older turns:\n{open_questions}\n\n"
-                "Current tasks:\n{tasks}\n\nFindings:\n{findings}\n\nSources:\n{sources}\n\n"
-                "Write concise but well-structured analysis sections in markdown. "
+                "Background brief:\n{memory_brief}\n\n"
+                "Current tasks:\n{tasks}\n\n"
+                "Findings:\n{findings}\n\n"
+                "Sources:\n{sources}\n\n"
+                "Write comprehensive but well-structured analysis sections in markdown. "
+                "When supported by evidence, cover Key Findings, Evidence and Examples, Risks and Limitations, and Open Questions. "
                 "Use inline citations on factual claims. "
                 "{format_instructions}",
             ),
@@ -103,19 +133,52 @@ def _maybe_synthesize_with_llm(
         return None
 
     chain = prompt | model | parser
-    return chain.invoke(
-        {
-            "question": question,
-            "rolling_summary": memory_sections["rolling_summary"],
-            "recent_turns": memory_sections["recent_turns"],
-            "key_facts": memory_sections["key_facts"],
-            "open_questions": memory_sections["open_questions"],
-            "tasks": tasks,
-            "findings": findings,
-            "sources": sources,
-            "format_instructions": parser.get_format_instructions(),
-        }
-    )
+    try:
+        drafted: ReportDraft = chain.invoke(
+            {
+                "question": question,
+                "memory_brief": payload.memory_brief,
+                "tasks": payload.tasks,
+                "findings": payload.findings,
+                "sources": payload.sources,
+                "format_instructions": parser.get_format_instructions(),
+            }
+        )
+    except Exception:
+        return None
+    if not drafted.sections and payload.findings:
+        return None
+    return drafted
+
+
+def _maybe_synthesize_multi_stage(
+    question: str,
+    tasks: list[dict],
+    findings: list[dict],
+    sources: dict[str, dict],
+    settings: Settings,
+    memory_brief: str,
+) -> ReportDraft | None:
+    section_drafts: list[ReportSectionDraft] = []
+    for plan in _build_section_plans(findings):
+        section_drafts.extend(
+            _synthesize_section_plan(
+                question=question,
+                plan=plan,
+                tasks=tasks,
+                sources=sources,
+                settings=settings,
+                memory_brief=memory_brief,
+            )
+        )
+
+    open_questions = _build_open_questions_section(tasks, findings)
+    if open_questions is not None:
+        section_drafts.append(open_questions)
+
+    if not section_drafts:
+        return None
+    return _merge_section_drafts(tasks, findings, section_drafts)
 
 
 def synthesize_report(
@@ -126,7 +189,14 @@ def synthesize_report(
     settings: Settings,
     memory: dict[str, Any] | None = None,
 ) -> StructuredReport:
-    drafted = _maybe_synthesize_with_llm(question, tasks, findings, sources, settings, memory)
+    drafted: ReportDraft | None = None
+    if settings.enable_llm_synthesis and can_use_llm(settings) and findings:
+        memory_brief = _build_synthesis_memory_brief(memory)
+        payload = _build_compact_payload(question, tasks, findings, sources, memory_brief)
+        if _should_keep_payload_together(payload, settings):
+            drafted = _maybe_synthesize_single_call(question, payload, settings)
+        if drafted is None:
+            drafted = _maybe_synthesize_multi_stage(question, tasks, findings, sources, settings, memory_brief)
     if drafted is None:
         drafted = _fallback_report(question, tasks, findings)
     drafted = _ensure_memory_section(drafted, memory)
@@ -165,3 +235,559 @@ def _ensure_memory_section(draft: ReportDraft, memory: dict[str, Any] | None) ->
             *draft.sections,
         ],
     )
+
+
+def _synthesize_section_plan(
+    question: str,
+    plan: SectionPlan,
+    tasks: list[dict],
+    sources: dict[str, dict],
+    settings: Settings,
+    memory_brief: str,
+) -> list[ReportSectionDraft]:
+    relevant_tasks = _relevant_tasks(tasks, plan.findings)
+    plan_payload = _build_compact_payload(
+        question,
+        relevant_tasks,
+        plan.findings,
+        sources,
+        memory_brief,
+        heading=plan.heading,
+        purpose=plan.purpose,
+        focus="Cross-task synthesis",
+    )
+    if _should_keep_payload_together(plan_payload, settings):
+        draft = _maybe_synthesize_section_with_llm(
+            question=question,
+            plan=plan,
+            payload=plan_payload,
+            settings=settings,
+            focus="Cross-task synthesis",
+        )
+        if draft is not None:
+            return [draft]
+
+    section_drafts: list[ReportSectionDraft] = []
+    for task in relevant_tasks:
+        task_findings = [item for item in plan.findings if item.get("task_id") == task.get("task_id")]
+        for chunk in _chunk_findings_for_budget(
+            question=question,
+            tasks=[task],
+            findings=task_findings,
+            sources=sources,
+            settings=settings,
+            memory_brief=memory_brief,
+            heading=plan.heading,
+            purpose=plan.purpose,
+            focus=_task_focus(task),
+        ):
+            payload = _build_compact_payload(
+                question,
+                [task],
+                chunk,
+                sources,
+                memory_brief,
+                heading=plan.heading,
+                purpose=plan.purpose,
+                focus=_task_focus(task),
+            )
+            draft = None
+            if _can_invoke_payload(payload.estimated_size, settings):
+                draft = _maybe_synthesize_section_with_llm(
+                    question=question,
+                    plan=plan,
+                    payload=payload,
+                    settings=settings,
+                    focus=_task_focus(task),
+                )
+            if draft is None:
+                draft = _fallback_section(plan.heading, chunk)
+            if draft is not None:
+                section_drafts.append(draft)
+
+    if section_drafts:
+        return section_drafts
+    fallback = _fallback_section(plan.heading, plan.findings)
+    return [fallback] if fallback is not None else []
+
+
+def _maybe_synthesize_section_with_llm(
+    question: str,
+    plan: SectionPlan,
+    payload: CompactPayload,
+    settings: Settings,
+    focus: str,
+) -> ReportSectionDraft | None:
+    if not payload.findings:
+        return None
+
+    try:
+        from langchain_core.output_parsers import PydanticOutputParser
+        from langchain_core.prompts import ChatPromptTemplate
+    except ImportError:
+        return None
+
+    parser = PydanticOutputParser(pydantic_object=ReportSectionDraft)
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                "You write one cited report section from validated evidence. "
+                "Background context is not a citation source. "
+                "Use inline citations in the form [source_id] for factual claims. "
+                "Keep the section heading exactly as provided.",
+            ),
+            (
+                "human",
+                "Current question:\n{question}\n\n"
+                "Background brief:\n{memory_brief}\n\n"
+                "Section heading:\n{heading}\n\n"
+                "Section purpose:\n{purpose}\n\n"
+                "Current focus:\n{focus}\n\n"
+                "Current tasks:\n{tasks}\n\n"
+                "Findings:\n{findings}\n\n"
+                "Sources:\n{sources}\n\n"
+                "Return a single markdown section body for this heading only. "
+                "{format_instructions}",
+            ),
+        ]
+    )
+    model = build_chat_model(settings.synthesis_model, settings, temperature=0)
+    if model is None:
+        return None
+
+    chain = prompt | model | parser
+    try:
+        drafted: ReportSectionDraft = chain.invoke(
+            {
+                "question": question,
+                "memory_brief": payload.memory_brief,
+                "heading": plan.heading,
+                "purpose": plan.purpose,
+                "focus": focus,
+                "tasks": payload.tasks,
+                "findings": payload.findings,
+                "sources": payload.sources,
+                "format_instructions": parser.get_format_instructions(),
+            }
+        )
+    except Exception:
+        return None
+    body = drafted.body_markdown.strip()
+    if not body:
+        return None
+    return ReportSectionDraft(heading=plan.heading, body_markdown=body)
+
+
+def _merge_section_drafts(
+    tasks: list[dict],
+    findings: list[dict],
+    section_drafts: list[ReportSectionDraft],
+) -> ReportDraft:
+    grouped: dict[str, list[str]] = defaultdict(list)
+    for draft in section_drafts:
+        body = draft.body_markdown.strip()
+        if not body:
+            continue
+        grouped[draft.heading].append(body)
+
+    ordered_headings = list(_SECTION_ORDER) + [
+        heading for heading in grouped if heading not in _SECTION_ORDER
+    ]
+    sections = [
+        ReportSectionDraft(
+            heading=heading,
+            body_markdown=_merge_markdown_blocks(grouped[heading]),
+        )
+        for heading in ordered_headings
+        if grouped.get(heading)
+    ]
+    if not sections:
+        return _fallback_report("", tasks, findings)
+    return ReportDraft(
+        title="Research Report",
+        summary="\n".join(_build_summary_lines(findings, limit=5)),
+        sections=sections,
+    )
+
+
+def _build_section_plans(findings: list[dict]) -> list[SectionPlan]:
+    plans: list[SectionPlan] = []
+
+    key_findings = [
+        item for item in findings if str(item.get("evidence_type", "")).strip() not in {"risk", "limitation"}
+    ]
+    if key_findings:
+        plans.append(
+            SectionPlan(
+                heading="Key Findings",
+                purpose="Summarize the strongest evidence-backed conclusions and any clear corroboration.",
+                findings=key_findings,
+            )
+        )
+
+    evidence_examples = [
+        item
+        for item in findings
+        if str(item.get("evidence_type", "")).strip() in {"example", "comparison", "statistic"}
+    ]
+    if evidence_examples:
+        plans.append(
+            SectionPlan(
+                heading="Evidence and Examples",
+                purpose="Highlight concrete examples, comparisons, and quantitative evidence.",
+                findings=evidence_examples,
+            )
+        )
+
+    risks = [
+        item
+        for item in findings
+        if str(item.get("evidence_type", "")).strip() in {"risk", "limitation"}
+    ]
+    if risks:
+        plans.append(
+            SectionPlan(
+                heading="Risks and Limitations",
+                purpose="Explain the main risks, limitations, uncertainties, and failure modes in the evidence.",
+                findings=risks,
+            )
+        )
+
+    return plans
+
+
+def _build_summary_lines(findings: list[dict], limit: int) -> list[str]:
+    summary_claims = _select_diverse_findings(_sort_findings_for_synthesis(findings), limit=limit)
+    return [
+        f"- {item['claim']} [{item['source_id']}]"
+        for item in summary_claims
+    ] or ["- No evidence was collected yet."]
+
+
+def _fallback_section(heading: str, findings: list[dict]) -> ReportSectionDraft | None:
+    lines = [
+        f"- {item['claim']} [{item['source_id']}]"
+        for item in _select_diverse_findings(
+            _sort_findings_for_synthesis(findings),
+            limit=_section_line_limit(heading),
+        )
+    ]
+    if not lines:
+        return None
+    return ReportSectionDraft(heading=heading, body_markdown="\n".join(lines))
+
+
+def _build_open_questions_section(tasks: list[dict], findings: list[dict]) -> ReportSectionDraft | None:
+    resolved_task_ids = {
+        str(item.get("task_id", "")).strip()
+        for item in findings
+        if str(item.get("task_id", "")).strip()
+    }
+    unresolved_tasks = [
+        task for task in tasks if str(task.get("task_id", "")).strip() not in resolved_task_ids
+    ]
+    if not unresolved_tasks:
+        return None
+    return ReportSectionDraft(
+        heading="Open Questions",
+        body_markdown="\n".join(
+            f"- Additional corroboration is still needed for {task.get('title', 'this task')}."
+            for task in unresolved_tasks
+        ),
+    )
+
+
+def _should_keep_payload_together(payload: CompactPayload, settings: Settings) -> bool:
+    return (
+        bool(payload.findings)
+        and len(payload.findings) <= settings.synthesis_max_findings_per_call
+        and len(payload.sources) <= settings.synthesis_max_sources_per_call
+        and payload.estimated_size <= settings.synthesis_soft_char_limit
+    )
+
+
+def _can_invoke_payload(estimated_size: int, settings: Settings) -> bool:
+    return estimated_size <= settings.synthesis_hard_char_limit
+
+
+def _chunk_findings_for_budget(
+    question: str,
+    tasks: list[dict],
+    findings: list[dict],
+    sources: dict[str, dict],
+    settings: Settings,
+    memory_brief: str,
+    heading: str,
+    purpose: str,
+    focus: str,
+) -> list[list[dict]]:
+    chunks: list[list[dict]] = []
+    current: list[dict] = []
+    for finding in _sort_findings_for_synthesis(findings):
+        candidate = [*current, finding]
+        payload = _build_compact_payload(
+            question,
+            tasks,
+            candidate,
+            sources,
+            memory_brief,
+            heading=heading,
+            purpose=purpose,
+            focus=focus,
+        )
+        if current and not _should_keep_payload_together(payload, settings):
+            chunks.append(current)
+            current = [finding]
+            continue
+        current = candidate
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _build_compact_payload(
+    question: str,
+    tasks: list[dict],
+    findings: list[dict],
+    sources: dict[str, dict],
+    memory_brief: str,
+    *,
+    heading: str | None = None,
+    purpose: str | None = None,
+    focus: str | None = None,
+) -> CompactPayload:
+    compact_tasks = _build_compact_tasks(tasks)
+    compact_findings = _build_compact_findings(findings)
+    compact_sources = _build_compact_sources(sources, compact_findings)
+    estimated_size = _estimate_payload_size(
+        question=question,
+        tasks=compact_tasks,
+        findings=compact_findings,
+        sources=compact_sources,
+        memory_brief=memory_brief,
+        heading=heading,
+        purpose=purpose,
+        focus=focus,
+    )
+    return CompactPayload(
+        tasks=compact_tasks,
+        findings=compact_findings,
+        sources=compact_sources,
+        memory_brief=memory_brief,
+        estimated_size=estimated_size,
+    )
+
+
+def _build_compact_tasks(tasks: list[dict]) -> list[dict[str, str]]:
+    compact_tasks: list[dict[str, str]] = []
+    for task in tasks:
+        task_id = _as_text(task.get("task_id"))
+        if not task_id:
+            continue
+        compact_tasks.append(
+            {
+                "task_id": task_id,
+                "title": _trim_text(_as_text(task.get("title")), _MAX_TASK_TITLE_LENGTH) or task_id,
+                "question": _trim_text(_as_text(task.get("question")), _MAX_TASK_QUESTION_LENGTH),
+            }
+        )
+    return compact_tasks
+
+
+def _build_compact_findings(findings: list[dict]) -> list[dict[str, Any]]:
+    compact_findings: list[dict[str, Any]] = []
+    for finding in _sort_findings_for_synthesis(findings):
+        source_id = _as_text(finding.get("source_id"))
+        claim = _trim_text(
+            _as_text(finding.get("claim")) or _as_text(finding.get("snippet")),
+            _MAX_CLAIM_LENGTH,
+        )
+        if not source_id or not claim:
+            continue
+        snippet = _trim_text(_as_text(finding.get("snippet")) or claim, _MAX_SNIPPET_LENGTH)
+        compact_findings.append(
+            {
+                "task_id": _as_text(finding.get("task_id")),
+                "source_id": source_id,
+                "claim": claim,
+                "snippet": snippet,
+                "evidence_type": _as_text(finding.get("evidence_type")) or "fact",
+                "source_role": _as_text(finding.get("source_role")) or "unknown",
+                "confidence": _as_optional_float(finding.get("confidence")),
+                "relevance_score": _as_optional_float(finding.get("relevance_score")),
+                "title": _trim_text(_as_text(finding.get("title")), _MAX_SOURCE_TITLE_LENGTH),
+                "url": _as_text(finding.get("url")),
+            }
+        )
+    return compact_findings
+
+
+def _build_compact_sources(
+    sources: dict[str, dict],
+    findings: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    ordered_source_ids: list[str] = []
+    best_finding_by_source: dict[str, dict[str, Any]] = {}
+    for finding in findings:
+        source_id = _as_text(finding.get("source_id"))
+        if not source_id:
+            continue
+        if source_id not in ordered_source_ids:
+            ordered_source_ids.append(source_id)
+        current = best_finding_by_source.get(source_id)
+        if current is None or _finding_rank(finding) > _finding_rank(current):
+            best_finding_by_source[source_id] = finding
+
+    compact_sources: dict[str, dict[str, Any]] = {}
+    for source_id in ordered_source_ids:
+        source = sources.get(source_id, {})
+        finding = best_finding_by_source.get(source_id, {})
+        compact_sources[source_id] = {
+            "source_id": source_id,
+            "title": _trim_text(
+                _as_text(source.get("title")) or _as_text(finding.get("title")) or source_id,
+                _MAX_SOURCE_TITLE_LENGTH,
+            ),
+            "url": _as_text(source.get("url")) or _as_text(finding.get("url")),
+            "snippet": _trim_text(
+                _as_text(finding.get("snippet"))
+                or _as_text(source.get("snippet"))
+                or _as_text(source.get("content")),
+                _MAX_SNIPPET_LENGTH,
+            ),
+            "providers": _as_string_list(source.get("providers")),
+            "source_role": _as_text(finding.get("source_role")) or "unknown",
+        }
+    return compact_sources
+
+
+def _estimate_payload_size(
+    *,
+    question: str,
+    tasks: list[dict[str, Any]],
+    findings: list[dict[str, Any]],
+    sources: dict[str, dict[str, Any]],
+    memory_brief: str,
+    heading: str | None = None,
+    purpose: str | None = None,
+    focus: str | None = None,
+) -> int:
+    payload: dict[str, Any] = {
+        "question": _trim_text(question, _MAX_TASK_QUESTION_LENGTH),
+        "memory_brief": memory_brief,
+        "tasks": tasks,
+        "findings": findings,
+        "sources": sources,
+    }
+    if heading:
+        payload["heading"] = heading
+    if purpose:
+        payload["purpose"] = purpose
+    if focus:
+        payload["focus"] = focus
+    return len(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+
+
+def _build_synthesis_memory_brief(memory: dict[str, Any] | None) -> str:
+    brief = build_contextual_brief(memory, max_chars=_MAX_MEMORY_BRIEF_CHARS)
+    return brief or "None"
+
+
+def _relevant_tasks(tasks: list[dict], findings: list[dict]) -> list[dict]:
+    relevant_task_ids = {
+        str(item.get("task_id", "")).strip()
+        for item in findings
+        if str(item.get("task_id", "")).strip()
+    }
+    relevant_tasks = [
+        task for task in tasks if str(task.get("task_id", "")).strip() in relevant_task_ids
+    ]
+    return relevant_tasks or list(tasks)
+
+
+def _task_focus(task: dict) -> str:
+    title = _trim_text(_as_text(task.get("title")), _MAX_TASK_TITLE_LENGTH)
+    question = _trim_text(_as_text(task.get("question")), _MAX_TASK_QUESTION_LENGTH)
+    if title and question:
+        return f"{title}: {question}"
+    return title or question or "Task-focused synthesis"
+
+
+def _merge_markdown_blocks(blocks: list[str]) -> str:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for block in blocks:
+        normalized = _normalize_space(block)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        merged.append(block.strip())
+    return "\n\n".join(merged)
+
+
+def _section_line_limit(heading: str) -> int:
+    return {
+        "Key Findings": 6,
+        "Evidence and Examples": 5,
+        "Risks and Limitations": 4,
+    }.get(heading, 4)
+
+
+def _select_diverse_findings(findings: list[dict], limit: int) -> list[dict]:
+    selected: list[dict] = []
+    seen: set[tuple[str, str, str]] = set()
+    for item in findings:
+        key = (
+            str(item.get("source_id", "")).strip(),
+            str(item.get("evidence_type", "")).strip(),
+            str(item.get("claim", "")).strip().casefold(),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        selected.append(item)
+        if len(selected) >= limit:
+            break
+    return selected
+
+
+def _sort_findings_for_synthesis(findings: list[dict]) -> list[dict]:
+    return sorted(findings, key=_finding_rank, reverse=True)
+
+
+def _finding_rank(finding: dict[str, Any]) -> tuple[float, float]:
+    return (
+        _as_optional_float(finding.get("confidence")) or 0.0,
+        _as_optional_float(finding.get("relevance_score")) or 0.0,
+    )
+
+
+def _as_text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _as_optional_float(value: Any) -> float | None:
+    try:
+        if value is None or value == "":
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _as_string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [text for item in value if (text := _as_text(item))]
+
+
+def _normalize_space(value: str) -> str:
+    return " ".join(value.split()).strip()
+
+
+def _trim_text(value: str, max_chars: int) -> str:
+    normalized = _normalize_space(value)
+    if len(normalized) <= max_chars:
+        return normalized
+    return normalized[: max_chars - 3].rstrip() + "..."

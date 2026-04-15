@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 from app.domain.models import (
@@ -91,8 +92,13 @@ def normalize_gaps(raw_gaps: list[object]) -> list[ResearchGap]:
 def identify_research_gaps(
     tasks: list[ResearchTask],
     task_outcomes: list[ResearchTaskOutcome],
+    findings: list[dict] | None = None,
+    sources: dict[str, dict] | None = None,
 ) -> list[ResearchGap]:
+    findings = findings or []
+    sources = sources or {}
     outcome_by_task = {outcome.task_id: outcome for outcome in task_outcomes}
+    findings_by_task = _findings_by_task(findings)
     gaps: list[ResearchGap] = []
 
     for task in tasks:
@@ -139,6 +145,14 @@ def identify_research_gaps(
                     severity="medium",
                 )
             )
+
+        gaps.extend(
+            _build_coverage_gaps_for_task(
+                task,
+                task_findings=findings_by_task.get(task.task_id, []),
+                sources=sources,
+            )
+        )
 
     return gaps
 
@@ -244,3 +258,124 @@ def _failed_gap(task: ResearchTask, outcome: ResearchTaskOutcome) -> ResearchGap
 
 def _hostname(url: str) -> str:
     return urlparse(url).hostname or ""
+
+
+def _findings_by_task(findings: list[dict]) -> dict[str, list[dict]]:
+    grouped: dict[str, list[dict]] = {}
+    for finding in findings:
+        task_id = str(finding.get("task_id", "")).strip()
+        if not task_id:
+            continue
+        grouped.setdefault(task_id, []).append(finding)
+    return grouped
+
+
+def _build_coverage_gaps_for_task(
+    task: ResearchTask,
+    *,
+    task_findings: list[dict],
+    sources: dict[str, dict],
+) -> list[ResearchGap]:
+    if not task_findings:
+        return []
+
+    task_sources = _task_sources(task_findings, sources)
+    gaps: list[ResearchGap] = []
+
+    if not any(_source_is_recent(source) for source in task_sources):
+        gaps.append(
+            ResearchGap(
+                gap_type="coverage_gap",
+                task_id=task.task_id,
+                title=f"Add recent evidence for {task.title}",
+                reason="Current evidence does not clearly include recent source material.",
+                retry_hint=f"Look for recent sources, updates, or 2025-2026 material about {task.title}.",
+                severity="medium",
+            )
+        )
+
+    if not _has_evidence_type(task_findings, {"example", "comparison", "statistic"}):
+        gaps.append(
+            ResearchGap(
+                gap_type="coverage_gap",
+                task_id=task.task_id,
+                title=f"Add examples or concrete data for {task.title}",
+                reason="Current evidence lacks concrete examples, comparisons, or measurable data points.",
+                retry_hint=f"Find a concrete case study, benchmark, or quantitative evidence for {task.title}.",
+                severity="medium",
+            )
+        )
+
+    if not _has_evidence_type(task_findings, {"risk", "limitation"}):
+        gaps.append(
+            ResearchGap(
+                gap_type="coverage_gap",
+                task_id=task.task_id,
+                title=f"Add risks or limitations for {task.title}",
+                reason="Current evidence does not cover risks, failure modes, or limitations.",
+                retry_hint=f"Find sources that discuss risks, tradeoffs, or limitations of {task.title}.",
+                severity="medium",
+            )
+        )
+
+    return gaps
+
+
+def _task_sources(task_findings: list[dict], sources: dict[str, dict]) -> list[dict]:
+    resolved: list[dict] = []
+    seen: set[str] = set()
+    for finding in task_findings:
+        source_id = str(finding.get("source_id", "")).strip()
+        if not source_id or source_id in seen:
+            continue
+        source = sources.get(source_id)
+        if not isinstance(source, dict):
+            continue
+        seen.add(source_id)
+        resolved.append(source)
+    return resolved
+
+
+def _has_evidence_type(task_findings: list[dict], expected: set[str]) -> bool:
+    for finding in task_findings:
+        evidence_type = str(finding.get("evidence_type", "")).strip().casefold()
+        if evidence_type in expected:
+            return True
+    return False
+
+
+def _source_is_recent(source: dict) -> bool:
+    metadata = source.get("metadata")
+    if not isinstance(metadata, dict):
+        return False
+
+    provider_metadata = metadata.get("provider_metadata")
+    if not isinstance(provider_metadata, dict):
+        return False
+
+    current_year = datetime.now(UTC).year
+    for item in provider_metadata.values():
+        if not isinstance(item, dict):
+            continue
+
+        published_date = str(item.get("published_date", "")).strip()
+        if published_date:
+            year = _extract_year(published_date)
+            if year >= current_year - 1:
+                return True
+
+        age = str(item.get("age", "")).strip().casefold()
+        if any(token in age for token in ("day", "week", "month", "天", "周", "月")):
+            return True
+        if age.startswith(("1 year", "a year", "1年", "一年")):
+            return True
+    return False
+
+
+def _extract_year(raw_value: str) -> int:
+    try:
+        return datetime.fromisoformat(raw_value.replace("Z", "+00:00")).year
+    except ValueError:
+        if len(raw_value) >= 4 and raw_value[:4].isdigit():
+            return int(raw_value[:4])
+    return 0
