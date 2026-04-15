@@ -44,8 +44,15 @@ We use **Zustand** as our primary state management solution to handle both globa
 
 ---
 
+## UI Global State
+
+- UI-specific global state (theme, sidebar collapse, etc.) is stored in a dedicated Zustand store (`src/store/useUiStore.ts`) to keep it separate from conversation/server state.
+- UI state that should survive refreshes is persisted to `localStorage`.
+- Theme initialization runs **before** React mounts (in `src/main.tsx`) to prevent a flash of the wrong theme.
+
 ## Common Mistakes
 
 - **Memory Leaks / Stuck state**: Forgetting to unsubscribe from SSE when unmounting or switching streams - currently handled automatically within the `sendMessage` scope closure.
 - **Unwrapping Errors**: FastAPI endpoints typically wrap domain objects in response models (e.g., `{"conversations": [...]}` instead of `[...]`). Direct mapping over the raw JSON without extracting the inner array will crash the UI. `src/lib/api.ts` always unpacks these responses first.
 - **Mode Drift**: Treating the composer button as a live mode switch for an existing conversation will corrupt API routing and user expectations. The button only changes draft mode before the first send; after that, the backend conversation mode wins.
+- **Theme Flash**: Initializing the theme class inside a React effect causes a visible flash on refresh. Always apply the theme class to `document.documentElement` before `createRoot(...).render()`.

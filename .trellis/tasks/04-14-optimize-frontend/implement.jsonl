@@ -1,0 +1,5 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "UI状态和全局状态分离的规范"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "前端质量要求和lint规范"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "前端目录结构规范"}

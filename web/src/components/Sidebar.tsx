@@ -1,20 +1,31 @@
 import { useEffect } from 'react'
-import { MessageSquare, Plus, PanelLeftClose } from 'lucide-react'
+import { MessageSquare, Plus, PanelLeftClose, Sun, Moon } from 'lucide-react'
 import { Button } from './ui/button'
 import { ScrollArea } from './ui/scroll-area'
 import { useChatStore } from '@/store/useChatStore'
+import { useUiStore } from '@/store/useUiStore'
 
 export function Sidebar() {
   const { conversations, loadConversations, activeConversationId, loadConversation, startNewChat } = useChatStore()
-  
+  const { sidebarCollapsed, toggleSidebar, theme, toggleTheme } = useUiStore()
+
   useEffect(() => {
     loadConversations()
   }, [loadConversations])
-  
+
+  if (sidebarCollapsed) {
+    return null
+  }
+
   return (
     <aside className="w-[260px] flex-shrink-0 bg-muted/30 border-r border-border flex flex-col transition-all duration-300">
       <div className="p-3 flex items-center justify-between">
-        <Button variant="ghost" size="icon" className="h-10 w-10 shrink-0 hover:bg-black/5 dark:hover:bg-white/5">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={toggleSidebar}
+          className="h-10 w-10 shrink-0 hover:bg-black/5 dark:hover:bg-white/5"
+        >
           <PanelLeftClose className="h-5 w-5 opacity-70" />
         </Button>
       </div>
@@ -51,12 +62,31 @@ export function Sidebar() {
         </div>
       </ScrollArea>
 
-      <div className="p-3 border-t border-border flex items-center gap-3 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 mx-2 my-2 rounded-xl transition-colors">
-        <div className="h-9 w-9 rounded-full bg-gradient-to-tr from-cyan-500 to-indigo-500 flex items-center justify-center text-white font-semibold text-sm shadow-inner ring-2 ring-background border border-border/50">
-          U
-        </div>
-        <div className="flex-1 truncate text-sm font-medium">
-          Deep Research
+      <div className="p-3 border-t border-border flex flex-col gap-2">
+        <Button
+          variant="ghost"
+          onClick={toggleTheme}
+          className="w-full justify-start gap-2 h-10 px-2 font-normal hover:bg-black/5 dark:hover:bg-white/5"
+        >
+          {theme === 'dark' ? (
+            <>
+              <Sun className="h-4 w-4 opacity-70" />
+              <span className="text-sm">Light mode</span>
+            </>
+          ) : (
+            <>
+              <Moon className="h-4 w-4 opacity-70" />
+              <span className="text-sm">Dark mode</span>
+            </>
+          )}
+        </Button>
+        <div className="flex items-center gap-3 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 px-2 py-2 rounded-xl transition-colors">
+          <div className="h-9 w-9 rounded-full bg-gradient-to-tr from-cyan-500 to-indigo-500 flex items-center justify-center text-white font-semibold text-sm shadow-inner ring-2 ring-background border border-border/50">
+            U
+          </div>
+          <div className="flex-1 truncate text-sm font-medium">
+            Deep Research
+          </div>
         </div>
       </div>
     </aside>
