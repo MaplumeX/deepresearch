@@ -51,10 +51,19 @@ class ResearchRunStore:
                     mode TEXT NOT NULL,
                     title TEXT NOT NULL,
                     created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    pinned_at TEXT
                 )
                 """
             )
+            try:
+                connection.execute(
+                    """
+                    ALTER TABLE conversations ADD COLUMN pinned_at TEXT
+                    """
+                )
+            except sqlite3.OperationalError:
+                pass
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS conversation_messages (
@@ -558,7 +567,7 @@ class ResearchRunStore:
                     """
                     SELECT conversation_id
                     FROM conversations
-                    ORDER BY updated_at DESC
+                    ORDER BY pinned_at DESC, updated_at DESC
                     """
                 ).fetchall()
             else:
@@ -567,11 +576,73 @@ class ResearchRunStore:
                     SELECT conversation_id
                     FROM conversations
                     WHERE mode = ?
-                    ORDER BY updated_at DESC
+                    ORDER BY pinned_at DESC, updated_at DESC
                     """,
                     (mode,),
                 ).fetchall()
         return [self._build_conversation_summary(row["conversation_id"], expected_mode=mode) for row in rows]
+
+    def conversation_has_active_work(self, conversation_id: str) -> bool:
+        with self._connect() as connection:
+            active_run = connection.execute(
+                """
+                SELECT 1
+                FROM research_runs
+                WHERE conversation_id = ? AND status IN (?, ?)
+                LIMIT 1
+                """,
+                (conversation_id, "queued", "running"),
+            ).fetchone()
+            if active_run is not None:
+                return True
+
+            active_turn = connection.execute(
+                """
+                SELECT 1
+                FROM chat_turns
+                WHERE conversation_id = ? AND status IN (?, ?)
+                LIMIT 1
+                """,
+                (conversation_id, "queued", "running"),
+            ).fetchone()
+        return active_turn is not None
+
+    def delete_conversation(self, conversation_id: str) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "DELETE FROM conversation_memory WHERE conversation_id = ?",
+                (conversation_id,),
+            )
+            connection.execute(
+                "DELETE FROM chat_turns WHERE conversation_id = ?",
+                (conversation_id,),
+            )
+            connection.execute(
+                "DELETE FROM research_runs WHERE conversation_id = ?",
+                (conversation_id,),
+            )
+            connection.execute(
+                "DELETE FROM conversation_messages WHERE conversation_id = ?",
+                (conversation_id,),
+            )
+            connection.execute(
+                "DELETE FROM conversations WHERE conversation_id = ?",
+                (conversation_id,),
+            )
+            connection.commit()
+
+    def pin_conversation(self, conversation_id: str) -> None:
+        now = utc_now_iso()
+        with self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE conversations
+                SET pinned_at = ?
+                WHERE conversation_id = ?
+                """,
+                (now, conversation_id),
+            )
+            connection.commit()
 
     def get_conversation_memory(self, conversation_id: str) -> PersistedConversationMemory | None:
         with self._connect() as connection:

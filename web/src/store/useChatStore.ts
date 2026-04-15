@@ -10,8 +10,10 @@ import type {
 } from '@/types/research'
 import {
   continueConversation,
+  deleteConversation as apiDeleteConversation,
   fetchConversation,
   fetchConversations,
+  pinConversation as apiPinConversation,
   startConversation,
   subscribeToChatTurnEvents,
   subscribeToRunEvents,
@@ -39,6 +41,8 @@ interface ChatState {
   activateResearchDraft: () => void
   deactivateResearchDraft: () => void
   exitResearchConversation: () => void
+  pinConversation: (id: string) => void
+  deleteConversation: (id: string) => void
   clearError: () => void
 }
 
@@ -157,6 +161,31 @@ export const useChatStore = create<ChatState>((set, get) => {
 
     exitResearchConversation: () => {
       resetToNewChat()
+    },
+
+    pinConversation: async (id: string) => {
+      try {
+        await apiPinConversation(id)
+        await get().loadConversations()
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to pin conversation'
+        console.error('Failed to pin conv:', err)
+        set({ error: message })
+      }
+    },
+
+    deleteConversation: async (id: string) => {
+      try {
+        await apiDeleteConversation(id)
+        if (get().activeConversationId === id) {
+          resetToNewChat()
+        }
+        await get().loadConversations()
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to delete conversation'
+        console.error('Failed to delete conv:', err)
+        set({ error: message })
+      }
     },
 
     loadConversations: async () => {

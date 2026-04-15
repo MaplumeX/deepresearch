@@ -28,6 +28,16 @@ export async function fetchConversation(id: string): Promise<ConversationDetail>
   return data.conversation
 }
 
+export async function deleteConversation(id: string): Promise<void> {
+  const res = await fetch(`/api/conversations/${id}`, { method: 'DELETE' })
+  await parseJson<unknown>(res)
+}
+
+export async function pinConversation(id: string): Promise<void> {
+  const res = await fetch(`/api/conversations/${id}/pin`, { method: 'POST' })
+  await parseJson<unknown>(res)
+}
+
 export async function startConversation(
   question: string,
   mode: ConversationMode,

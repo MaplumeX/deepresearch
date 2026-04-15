@@ -22,6 +22,7 @@ GET /api/research/runs/{run_id}/events
 POST /api/research/runs/{run_id}/resume
 GET /api/conversations
 GET /api/conversations/{conversation_id}
+DELETE /api/conversations/{conversation_id}
 POST /api/conversations
 POST /api/conversations/{conversation_id}/messages
 GET /api/chat/turns/{turn_id}
@@ -278,6 +279,18 @@ Required tests and assertion points for this contract:
   "updated_at": "ISO-8601 timestamp",
   "messages": "conversation message list ordered by creation time",
   "runs": "run detail list ordered by creation time"
+}
+```
+
+#### Conversation Delete Contract
+
+```json
+{
+  "success": {
+    "status": "ok"
+  },
+  "not_found": "404 when the conversation does not exist",
+  "active_work_conflict": "409 when any research run or chat turn in the conversation is still queued or running"
 }
 ```
 

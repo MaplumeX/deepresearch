@@ -63,6 +63,31 @@ async def get_any_conversation(conversation_id: str, http_request: Request) -> C
     return ConversationDetailResponse(conversation=conversation)
 
 
+@router.delete("/api/conversations/{conversation_id}")
+async def delete_any_conversation(conversation_id: str, http_request: Request) -> dict[str, str]:
+    store = get_conversation_store(http_request)
+    conversation = store.get_conversation(conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail=f"Conversation {conversation_id} was not found.")
+    if store.conversation_has_active_work(conversation_id):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Conversation {conversation_id} has active runs or chat turns and cannot be deleted.",
+        )
+    store.delete_conversation(conversation_id)
+    return {"status": "ok"}
+
+
+@router.post("/api/conversations/{conversation_id}/pin")
+async def pin_any_conversation(conversation_id: str, http_request: Request) -> dict[str, str]:
+    store = get_conversation_store(http_request)
+    conversation = store.get_conversation(conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail=f"Conversation {conversation_id} was not found.")
+    store.pin_conversation(conversation_id)
+    return {"status": "ok"}
+
+
 @router.post("/api/conversations", response_model=ConversationMutationResponse)
 async def create_any_conversation(
     http_request: Request,
