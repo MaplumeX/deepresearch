@@ -10,8 +10,9 @@ from app.runtime_progress import emit_progress
 from app.services.research_quality import build_task_outcome
 from app.services.research_progress import build_counts, build_progress_payload, build_task_progress
 from app.services.research_worker import build_task_evidence, filter_acquired_contents, rank_search_hits, rewrite_queries
+from app.services.source_content import replace_contents, should_escalate_to_firecrawl, should_escalate_to_jina_reader
 from app.tools.extract import extract_sources
-from app.tools.fetch import acquire_contents
+from app.tools.fetch import acquire_contents, fetch_with_firecrawl, fetch_with_jina_reader
 from app.tools.search import search_web
 
 
@@ -109,6 +110,18 @@ async def acquire_and_filter_node(state: ResearchWorkerState, config: dict | Non
     settings = get_settings()
     hits = [SearchHit.model_validate(item) for item in state.get("search_hits", [])]
     acquired_contents = await acquire_contents(hits)
+    if settings.enable_jina_reader_fallback:
+        jina_candidates = [item for item in acquired_contents if should_escalate_to_jina_reader(item)]
+        acquired_contents = replace_contents(
+            acquired_contents,
+            await fetch_with_jina_reader(jina_candidates, settings=settings),
+        )
+    if settings.enable_firecrawl_fallback:
+        firecrawl_candidates = [item for item in acquired_contents if should_escalate_to_firecrawl(item)]
+        acquired_contents = replace_contents(
+            acquired_contents,
+            await fetch_with_firecrawl(firecrawl_candidates, settings=settings),
+        )
     filtered_limit = min(6, max(2, settings.search_max_results + 2))
     filtered_contents = filter_acquired_contents(task, acquired_contents, limit=filtered_limit)
     return {"acquired_contents": [item.model_dump() for item in filtered_contents]}

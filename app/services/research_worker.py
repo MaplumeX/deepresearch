@@ -7,11 +7,10 @@ from app.config import Settings
 from app.domain.models import AcquiredContent, Evidence, ResearchRequest, ResearchTask, SearchHit, SourceDocument
 from app.services.evidence_extraction import build_task_evidence as _build_task_evidence
 from app.services.query_rewrite import rewrite_queries as _rewrite_queries
+from app.services.source_content import MIN_PAGE_CHARS, MIN_SNIPPET_CHARS, normalize_content_text, preferred_content_text, quality_failure_reason
 
 
-_MIN_PAGE_CHARS = 200
 _MIN_PAGE_SCORE = 0.12
-_MIN_SNIPPET_CHARS = 80
 _TOKEN_PATTERN = re.compile(r"[\u4e00-\u9fff]{2,}|[a-z0-9]{3,}", re.IGNORECASE)
 
 
@@ -43,10 +42,15 @@ def filter_acquired_contents(task: ResearchTask, contents: list[AcquiredContent]
 
     keywords = _keywords_for_task(task)
     scored_contents: list[tuple[float, int, AcquiredContent]] = []
+    fallback_candidates: list[AcquiredContent] = []
 
     for index, item in enumerate(contents):
-        content = _normalize_space(item.content)
-        min_chars = _MIN_SNIPPET_CHARS if item.acquisition_method == "search_snippet" else _MIN_PAGE_CHARS
+        content = preferred_content_text(item)
+        if quality_failure_reason(item.metadata) == "blocked_page":
+            continue
+        if content:
+            fallback_candidates.append(item)
+        min_chars = MIN_SNIPPET_CHARS if item.acquisition_method == "search_snippet" else MIN_PAGE_CHARS
         if len(content) < min_chars:
             continue
 
@@ -67,7 +71,7 @@ def filter_acquired_contents(task: ResearchTask, contents: list[AcquiredContent]
     if scored_contents:
         return [item for _, _, item in scored_contents[:limit]]
 
-    return contents[:1]
+    return fallback_candidates[:1]
 
 
 def build_task_evidence(
@@ -79,8 +83,8 @@ def build_task_evidence(
 
 
 def _score_search_hit(hit: SearchHit, keywords: set[str]) -> float:
-    title_text = _normalize_space(f"{hit.title} {hit.url}")
-    snippet_text = _normalize_space(hit.snippet)
+    title_text = normalize_content_text(f"{hit.title} {hit.url}")
+    snippet_text = normalize_content_text(hit.snippet)
     title_overlap = _keyword_overlap_ratio(keywords, title_text)
     snippet_overlap = _keyword_overlap_ratio(keywords, snippet_text)
     snippet_length_bonus = min(len(snippet_text) / 400, 1.0) * 0.08
@@ -103,6 +107,8 @@ def _score_acquired_content(
     acquisition_bonus = {
         "provider_raw_content": 0.12,
         "http_fetch": 0.08,
+        "jina_reader": 0.1,
+        "firecrawl_scrape": 0.11,
         "search_snippet": 0.02,
     }.get(acquisition_method, 0.0)
     provider_bonus = min(provider_count, 3) * 0.03
@@ -182,7 +188,7 @@ def _hostname(url: str) -> str:
 
 
 def _longest_non_empty(values) -> str:
-    normalized = [_normalize_space(value) for value in values if _normalize_space(value)]
+    normalized = [normalize_content_text(value) for value in values if normalize_content_text(value)]
     if not normalized:
         return ""
     return max(normalized, key=len)
@@ -196,10 +202,6 @@ def _keyword_overlap_ratio(keywords: set[str], text: str) -> float:
         return 0.0
     overlap = len(keywords & text_tokens)
     return overlap / len(keywords)
-
-
-def _normalize_space(value: str) -> str:
-    return " ".join(value.split())
 
 
 def _clamp(value: float, lower: float, upper: float) -> float:

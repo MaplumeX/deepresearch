@@ -29,7 +29,7 @@ class ResearchPlan(BaseModel):
 
 
 ContentFormat = Literal["html", "text", "markdown"]
-AcquisitionMethod = Literal["provider_raw_content", "http_fetch", "search_snippet"]
+AcquisitionMethod = Literal["provider_raw_content", "http_fetch", "jina_reader", "firecrawl_scrape", "search_snippet"]
 EvidenceType = Literal["definition", "fact", "statistic", "example", "comparison", "risk", "limitation", "trend"]
 SourceRole = Literal["official", "primary", "secondary", "commentary", "unknown"]
 GapType = Literal["missing_evidence", "weak_evidence", "low_source_diversity", "retrieval_failure", "coverage_gap"]

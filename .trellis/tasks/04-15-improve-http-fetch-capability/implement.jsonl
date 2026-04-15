@@ -1,0 +1,6 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Preserve deterministic fallback and keep orchestration out of tools."}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Keep fetch/extract logic inside tools and pure scoring in services."}
+{"file": ".trellis/spec/backend/research-agent-runtime.md", "reason": "Acquisition method contract changes affect report/source payloads."}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Avoid duplicating fetch/extract heuristics across modules."}

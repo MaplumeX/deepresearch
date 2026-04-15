@@ -260,6 +260,8 @@ def _score_confidence(snippet: str, content: str, acquisition_method: str) -> fl
     acquisition_bonus = {
         "provider_raw_content": 0.1,
         "http_fetch": 0.07,
+        "jina_reader": 0.08,
+        "firecrawl_scrape": 0.09,
         "search_snippet": -0.05,
     }.get(acquisition_method, 0.0)
     score = 0.3 + length_bonus + evidence_signal + sentence_bonus + acquisition_bonus

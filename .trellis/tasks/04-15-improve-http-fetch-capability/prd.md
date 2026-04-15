@@ -21,9 +21,7 @@ Improve the project's HTTP fetch capability so research runs can acquire more us
 
 ## Open Questions
 
-* Should the MVP focus on better plain HTTP acquisition, or also include rendered/browser-based fetching?
-* Is the team willing to depend on a paid external service for difficult sites?
-* Which source classes matter most: news/article sites, docs/blogs, or JS-heavy apps/forums?
+* Is the scoped MVP below acceptable for implementation, or should it stay at design/proposal stage only?
 
 ## Requirements (evolving)
 
@@ -31,6 +29,8 @@ Improve the project's HTTP fetch capability so research runs can acquire more us
 * Compare "improve current stack" vs "add new library/service" options.
 * Recommend an MVP path that matches current repo constraints.
 * Identify candidate providers/frameworks/sites worth integrating or targeting first.
+* Use strengthened native HTTP fetching as the default path.
+* Add Firecrawl and Jina Reader as external capability layers.
 
 ## Acceptance Criteria (evolving)
 
@@ -58,6 +58,8 @@ Improve the project's HTTP fetch capability so research runs can acquire more us
 * Existing extract code: `app/tools/extract.py`
 * Existing search providers: `app/tools/search.py`
 * Existing fetch config: `app/config.py`
+* Existing content filtering already rejects page-like content under 200 chars in `app/services/research_worker.py`.
+* Existing scoring already treats `provider_raw_content` as stronger than `http_fetch`, and `search_snippet` as weakest.
 
 ## Research Notes
 
@@ -113,3 +115,80 @@ Improve the project's HTTP fetch capability so research runs can acquire more us
 * If we want the smallest delta, Tavily Extract is the first service to try because Tavily is already in the repo and already returns extraction-oriented content.
 * If the real pain is JS rendering and anti-bot, Browserless Smart Scrape or Firecrawl is a stronger fallback than expanding pure HTTP heuristics forever.
 * If we expect repeated interactive flows inside the repo itself, prefer Crawl4AI over raw Playwright because it already gives markdown generation, waiting, sessions, and crawler-oriented abstractions.
+
+### User-selected direction
+
+* Selected stack direction: Approach A + Firecrawl + Jina Reader.
+* Working interpretation:
+  Default path stays in-process and low-cost.
+  Jina Reader is the lightweight remote reader/extractor layer.
+  Firecrawl is the heavier high-success fallback for dynamic pages, structured extraction, and action-driven pages.
+* Firecrawl should be used only as the last fallback after native HTTP and Jina Reader both fail.
+
+### Proposed fetch tiering
+
+* Tier 0: keep provider raw content when already available and sufficiently long.
+* Tier 1: use strengthened in-process HTTP fetch as the default acquisition path.
+* Tier 2: use Jina Reader when Tier 1 returns weak extraction, blocked pages, or very noisy HTML.
+* Tier 3: use Firecrawl only when Tier 1 and Tier 2 both fail to produce acceptable content.
+
+### Working MVP scope
+
+* Add minimal routing heuristics instead of a full per-domain policy engine.
+* Add explicit acquisition methods for Jina Reader and Firecrawl so downstream audit/synthesis can distinguish source quality.
+* Start with read-only Firecrawl scrape usage; defer login/session automation unless it becomes a real requirement.
+* Optimize the first pass primarily for news/article sites.
+* Prioritize Chinese news/article sites for the MVP.
+* Include platform-like Chinese media/article sources such as WeChat articles, Zhihu columns, 36Kr, and Huxiu in the first batch.
+
+### Scoped MVP draft
+
+* Keep search provider layer unchanged for the first implementation pass.
+* Upgrade only the fetch/extract path and related scoring metadata.
+* Add native HTTP quality-failure detection tuned for Chinese article pages.
+* Add optional Jina Reader fallback for weak extraction or article-interstitial pages.
+* Add optional Firecrawl fallback only after native HTTP and Jina Reader both fail.
+* Preserve deterministic local fallback behavior when external API keys are absent.
+* Defer domain-specific rule tables, login/session flows, and browser automation beyond Firecrawl scrape.
+
+### Implementation draft
+
+* Add a local extraction pipeline with three stages:
+  `selectolax` for HTML cleanup and interstitial detection,
+  `trafilatura` as the primary article extractor,
+  `readability-lxml` as the fallback article extractor before plain-text stripping.
+* Keep remote tiers outside the extractor itself:
+  native HTTP acquires HTML,
+  local extractor decides whether content is acceptable,
+  Jina Reader and Firecrawl are only escalation paths when local quality fails.
+* Introduce fetch outcome metadata so later scoring/audit can distinguish:
+  transport success,
+  extraction success,
+  escalation reason,
+  final acquisition method,
+  detected interstitial/block-page markers.
+* Tune the first-pass heuristics for Chinese article pages and mixed media/article platforms.
+
+### Candidate code touchpoints
+
+* `app/tools/fetch.py`
+  Add fetch routing, escalation decision points, and external fallback clients.
+* `app/tools/extract.py`
+  Replace the single extractor path with a staged local extraction pipeline.
+* `app/domain/models.py`
+  Extend acquisition method literals and optional metadata fields if needed.
+* `app/config.py`
+  Add feature flags, API keys, and extraction/failure threshold settings.
+* `tests/unit/test_extract_tool.py`
+  Add unit coverage for staged extractor selection and quality-failure cases.
+* `tests/unit/test_research_worker_service.py`
+  Update or extend tests that depend on page-content thresholds and scoring.
+
+### Selected failure policy
+
+* Selected policy: quality failure, not just transport failure.
+* Draft escalation rule:
+  Escalate from native HTTP to Jina Reader, and from Jina Reader to Firecrawl, when the result is empty, request-level failure, extracted main content remains too short, or the page looks like a block/interstitial page instead of useful source content.
+* Initial heuristics should align with existing repo thresholds:
+  Treat sub-200-character page content as failed page acquisition unless it is intentionally snippet-like.
+  Detect obvious block pages using small keyword rules such as captcha, access denied, verify you are human, enable javascript, and similar interstitial markers.

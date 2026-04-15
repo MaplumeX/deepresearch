@@ -178,7 +178,7 @@ def emit_results_node(state: dict) -> dict
         "url": "string",
         "snippet": "best evidence or source snippet",
         "providers": "list[str]",
-        "acquisition_method": "provider_raw_content | http_fetch | search_snippet | null",
+        "acquisition_method": "provider_raw_content | http_fetch | jina_reader | firecrawl_scrape | search_snippet | null",
         "cited_in_sections": "list[str] of section ids",
         "occurrence_count": "int >= 0",
         "relevance_score": "float 0..1 or null",
@@ -192,7 +192,7 @@ def emit_results_node(state: dict) -> dict
         "url": "string",
         "snippet": "best evidence or source snippet",
         "providers": "list[str]",
-        "acquisition_method": "provider_raw_content | http_fetch | search_snippet | null",
+        "acquisition_method": "provider_raw_content | http_fetch | jina_reader | firecrawl_scrape | search_snippet | null",
         "fetched_at": "ISO-8601 timestamp or empty string",
         "is_cited": "bool"
       }
@@ -732,10 +732,162 @@ This store no longer auto-migrates pre-conversation legacy rows. If the on-disk 
   "content": "normalized main text",
   "fetched_at": "ISO-8601 timestamp",
   "providers": "list[str]",
-  "acquisition_method": "provider_raw_content | http_fetch | search_snippet",
+  "acquisition_method": "provider_raw_content | http_fetch | jina_reader | firecrawl_scrape | search_snippet",
   "metadata": "provider/content metadata used for downstream reasoning"
 }
 ```
+
+#### Worker Fallback Fetch Contract
+
+```python
+async def acquire_contents(hits: list[SearchHit]) -> list[AcquiredContent]
+async def fetch_with_jina_reader(
+    contents: list[AcquiredContent],
+    *,
+    settings: Settings | None = None,
+) -> dict[str, AcquiredContent]
+async def fetch_with_firecrawl(
+    contents: list[AcquiredContent],
+    *,
+    settings: Settings | None = None,
+) -> dict[str, AcquiredContent]
+
+def should_escalate_to_jina_reader(item: AcquiredContent) -> bool
+def should_escalate_to_firecrawl(item: AcquiredContent) -> bool
+def replace_contents(
+    contents: list[AcquiredContent],
+    replacements: dict[str, AcquiredContent],
+) -> list[AcquiredContent]
+```
+
+```text
+File paths:
+- app/tools/fetch.py
+- app/services/source_content.py
+- app/graph/subgraphs/research_worker.py
+```
+
+#### Worker Fallback Metadata Contract
+
+`AcquiredContent.metadata` may now include the following normalized keys after local or remote fetch:
+
+```json
+{
+  "provider_metadata": "dict[str, dict]",
+  "content_type": "HTTP content-type string when available",
+  "response_url": "final URL after redirects when available",
+  "status_code": "HTTP status code when available",
+  "extracted_text": "normalized extracted text used for filtering/scoring",
+  "extractor": "passthrough | selectolax | trafilatura | readability-lxml | regex | cached-*",
+  "interstitial_markers": ["captcha | access_denied | verify_human | enable_javascript | wechat_client_required | content_unavailable"],
+  "quality_failure_reason": "empty_content | short_content | blocked_page | null",
+  "fallback_provider": "jina_reader | firecrawl | null",
+  "fallback_source_method": "provider_raw_content | http_fetch | jina_reader | null",
+  "fallback_reason": "empty_content | short_content | blocked_page | null",
+  "firecrawl_metadata": "provider payload metadata when Firecrawl returns it"
+}
+```
+
+#### Worker Fallback Routing Contract
+
+```text
+Tier 0: provider_raw_content stays in-process when sufficiently long
+Tier 1: http_fetch acquires raw page content and local extraction metadata
+Tier 2: jina_reader runs only when should_escalate_to_jina_reader(item) is true
+Tier 3: firecrawl_scrape runs only when should_escalate_to_firecrawl(item) is true after Tier 2
+```
+
+Escalation rule:
+
+```text
+quality_failure_reason in {empty_content, short_content, blocked_page}
+AND acquisition_method in {provider_raw_content, http_fetch}        -> Jina Reader candidate
+AND acquisition_method in {provider_raw_content, http_fetch, jina_reader} -> Firecrawl candidate
+```
+
+Replacement rule:
+
+```text
+replace_contents() must preserve original ordering by URL.
+Only URLs present in the replacement map are swapped.
+```
+
+### Scenario: Article Fetch Fallback Routing
+
+#### 1. Scope / Trigger
+- Trigger: changes to article acquisition, remote fetch fallback, extraction metadata, or env keys that control Jina Reader / Firecrawl usage.
+- Scope: `app/tools/fetch.py`, `app/services/source_content.py`, `app/graph/subgraphs/research_worker.py`, `app/tools/extract.py`, `app/config.py`, and any tests that assert acquisition order or method.
+
+#### 2. Signatures
+- `app/graph/subgraphs/research_worker.py::acquire_and_filter_node(state, config=None) -> dict`
+- `app/tools/fetch.py::acquire_contents(hits) -> list[AcquiredContent]`
+- `app/tools/fetch.py::fetch_with_jina_reader(contents, settings=None) -> dict[str, AcquiredContent]`
+- `app/tools/fetch.py::fetch_with_firecrawl(contents, settings=None) -> dict[str, AcquiredContent]`
+- `app/services/source_content.py::should_escalate_to_jina_reader(item) -> bool`
+- `app/services/source_content.py::should_escalate_to_firecrawl(item) -> bool`
+- `app/services/source_content.py::replace_contents(contents, replacements) -> list[AcquiredContent]`
+
+#### 3. Contracts
+- `Settings.enable_jina_reader_fallback`:
+  defaults to `true` when `JINA_API_KEY` exists, otherwise `false`.
+- `Settings.enable_firecrawl_fallback`:
+  defaults to `true` when `FIRECRAWL_API_KEY` exists, otherwise `false`.
+- `fetch_with_jina_reader()`:
+  returns a URL-keyed replacement map only for successful remote upgrades; failures return no replacement entry.
+- `fetch_with_firecrawl()`:
+  returns a URL-keyed replacement map only for successful remote upgrades; failures return no replacement entry.
+- `acquire_and_filter_node()`:
+  must call local `acquire_contents()` first, then optional Jina replacement, then optional Firecrawl replacement, then `filter_acquired_contents()`.
+- `AcquiredContent.acquisition_method`:
+  may be `provider_raw_content | http_fetch | jina_reader | firecrawl_scrape | search_snippet`.
+
+#### 4. Validation & Error Matrix
+
+| Condition | Jina Reader | Firecrawl | Expected Result |
+|----------|-------------|-----------|-----------------|
+| Local fetch quality OK | skip | skip | keep local content |
+| Local fetch `short_content` and Jina disabled | skip | optional if enabled and candidate survives | keep local content until later filters |
+| Local fetch `short_content`, Jina success | replace | run only if upgraded item still escalates | prefer Jina result |
+| Jina returns `blocked_page` | replace with blocked result | run | Firecrawl gets the Jina-upgraded item |
+| Jina request failure / empty body | no replacement | run against original candidate if still eligible | preserve candidate for Firecrawl |
+| Firecrawl request failure / empty body | no replacement | n/a | preserve last available candidate |
+| acquisition method is `search_snippet` | skip | skip | no remote escalation |
+
+#### 5. Good/Base/Bad Cases
+
+**Good**
+- Local HTML extraction marks `quality_failure_reason=short_content`, Jina returns long markdown body, Firecrawl receives no candidates, final method is `jina_reader`.
+
+**Base**
+- Local HTML extraction is already acceptable, no remote provider is called, final method stays `http_fetch`.
+
+**Bad**
+- Firecrawl is called before Jina for a candidate that only has local `short_content`.
+- `replace_contents()` reorders the content list and changes ranking semantics.
+- `search_snippet` items are escalated to remote article fetch providers.
+
+#### 6. Tests Required
+- `tests/unit/test_source_content.py`
+  - assert escalation predicates for `http_fetch`, `jina_reader`, and `search_snippet`
+  - assert `replace_contents()` preserves order
+- `tests/unit/test_research_worker_subgraph.py`
+  - assert Jina runs before Firecrawl
+  - assert Firecrawl receives the Jina-upgraded blocked candidate when Jina still fails quality
+- `tests/unit/test_extract_tool.py`
+  - assert blocked/interstitial article pages are dropped before evidence extraction
+- `tests/unit/test_research_worker_service.py`
+  - assert filtering uses `metadata.extracted_text` rather than raw HTML length
+
+#### 7. Wrong vs Correct
+
+##### Wrong
+- Put fallback routing inside `app/tools/fetch.py::acquire_contents()` and hide when Jina / Firecrawl should run.
+- Inspect raw HTML length inside the graph node and ignore normalized extraction metadata.
+
+##### Correct
+- Keep remote request mechanics in `app/tools/fetch.py`.
+- Keep escalation predicates and content replacement helpers in `app/services/source_content.py`.
+- Keep orchestration order explicit in `app/graph/subgraphs/research_worker.py::acquire_and_filter_node()`.
 
 #### Environment Contract
 
@@ -747,6 +899,12 @@ OPENAI_BASE_URL          optional fallback alias for compatibility
 TAVILY_API_KEY           optional, enables web search
 BRAVE_API_KEY            optional, enables Brave Search aggregation
 SERPER_API_KEY           optional, enables Serper (Google Search) aggregation
+JINA_API_KEY             optional, increases Jina Reader quota and enables auth-backed fallback by default
+FIRECRAWL_API_KEY        optional, enables Firecrawl scrape fallback
+ENABLE_JINA_READER_FALLBACK optional, defaults to true when JINA_API_KEY is set
+ENABLE_FIRECRAWL_FALLBACK  optional, defaults to true when FIRECRAWL_API_KEY is set
+JINA_TIMEOUT_SECONDS     optional, timeout for Jina Reader fallback requests
+FIRECRAWL_TIMEOUT_SECONDS optional, timeout for Firecrawl fallback requests
 CHECKPOINT_DB_PATH       optional, defaults to research.db
 RUNS_DB_PATH             optional, defaults to research_runs.db
 DEFAULT_MAX_ITERATIONS   optional, defaults to 2

@@ -126,6 +126,59 @@ class ResearchWorkerServiceTest(unittest.TestCase):
         self.assertEqual(len(contents), 1)
         self.assertEqual(contents[0].url, "https://example.com/relevant")
 
+    def test_filter_acquired_contents_uses_extracted_text_metadata(self) -> None:
+        contents = filter_acquired_contents(
+            self.task,
+            [
+                AcquiredContent(
+                    url="https://example.com/raw-noisy",
+                    title="Research worker evidence scoring rollout",
+                    content="<html>" + ("noise " * 200) + "</html>",
+                    content_format="html",
+                    acquired_at="2026-04-13T00:00:00+00:00",
+                    providers=["brave"],
+                    acquisition_method="http_fetch",
+                    metadata={"extracted_text": "简短摘要"},
+                ),
+                AcquiredContent(
+                    url="https://example.com/relevant",
+                    title="Research worker evidence scoring rollout",
+                    content="Evidence scoring improves the research worker. " * 40,
+                    content_format="text",
+                    acquired_at="2026-04-13T00:00:00+00:00",
+                    providers=["tavily"],
+                    acquisition_method="provider_raw_content",
+                ),
+            ],
+            limit=2,
+        )
+
+        self.assertEqual(len(contents), 1)
+        self.assertEqual(contents[0].url, "https://example.com/relevant")
+
+    def test_filter_acquired_contents_skips_blocked_pages_even_in_fallback(self) -> None:
+        contents = filter_acquired_contents(
+            self.task,
+            [
+                AcquiredContent(
+                    url="https://example.com/blocked",
+                    title="Blocked page",
+                    content="<html>" + ("placeholder " * 200) + "</html>",
+                    content_format="html",
+                    acquired_at="2026-04-13T00:00:00+00:00",
+                    providers=["brave"],
+                    acquisition_method="http_fetch",
+                    metadata={
+                        "extracted_text": "请在微信客户端打开链接并完成验证码验证",
+                        "quality_failure_reason": "blocked_page",
+                    },
+                )
+            ],
+            limit=1,
+        )
+
+        self.assertEqual(contents, [])
+
     def test_build_task_evidence_scores_relevant_sources(self) -> None:
         findings, sources = build_task_evidence(
             self.task,

@@ -66,10 +66,18 @@ class Settings:
     synthesis_hard_char_limit: int = 110000
     synthesis_max_findings_per_call: int = 24
     synthesis_max_sources_per_call: int = 12
+    jina_api_key: str | None = None
+    firecrawl_api_key: str | None = None
+    enable_jina_reader_fallback: bool = False
+    enable_firecrawl_fallback: bool = False
+    jina_timeout_seconds: float = 20.0
+    firecrawl_timeout_seconds: float = 25.0
 
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
+    jina_api_key = os.getenv("JINA_API_KEY")
+    firecrawl_api_key = os.getenv("FIRECRAWL_API_KEY")
     return Settings(
         app_name=os.getenv("APP_NAME", "deep-research-agent"),
         planner_model=os.getenv("PLANNER_MODEL", "gpt-4.1-mini"),
@@ -92,4 +100,10 @@ def get_settings() -> Settings:
         synthesis_hard_char_limit=int(os.getenv("SYNTHESIS_HARD_CHAR_LIMIT", "110000")),
         synthesis_max_findings_per_call=int(os.getenv("SYNTHESIS_MAX_FINDINGS_PER_CALL", "24")),
         synthesis_max_sources_per_call=int(os.getenv("SYNTHESIS_MAX_SOURCES_PER_CALL", "12")),
+        jina_api_key=jina_api_key,
+        firecrawl_api_key=firecrawl_api_key,
+        enable_jina_reader_fallback=read_bool_env("ENABLE_JINA_READER_FALLBACK", bool(jina_api_key)),
+        enable_firecrawl_fallback=read_bool_env("ENABLE_FIRECRAWL_FALLBACK", bool(firecrawl_api_key)),
+        jina_timeout_seconds=float(os.getenv("JINA_TIMEOUT_SECONDS", "20")),
+        firecrawl_timeout_seconds=float(os.getenv("FIRECRAWL_TIMEOUT_SECONDS", "25")),
     )

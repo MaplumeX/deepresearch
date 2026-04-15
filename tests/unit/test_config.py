@@ -63,6 +63,32 @@ class ConfigTest(unittest.TestCase):
 
         self.assertEqual(settings.serper_api_key, "serper-test-key")
 
+    def test_enables_remote_fallbacks_when_keys_exist(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "JINA_API_KEY": "jina-test-key",
+                "FIRECRAWL_API_KEY": "firecrawl-test-key",
+            },
+            clear=True,
+        ):
+            get_settings.cache_clear()
+            settings = get_settings()
+
+        self.assertEqual(settings.jina_api_key, "jina-test-key")
+        self.assertEqual(settings.firecrawl_api_key, "firecrawl-test-key")
+        self.assertTrue(settings.enable_jina_reader_fallback)
+        self.assertTrue(settings.enable_firecrawl_fallback)
+
+    def test_can_enable_jina_reader_without_api_key(self) -> None:
+        with patch.dict(os.environ, {"ENABLE_JINA_READER_FALLBACK": "true"}, clear=True):
+            get_settings.cache_clear()
+            settings = get_settings()
+
+        self.assertIsNone(settings.jina_api_key)
+        self.assertTrue(settings.enable_jina_reader_fallback)
+        self.assertFalse(settings.enable_firecrawl_fallback)
+
 
 if __name__ == "__main__":
     unittest.main()
