@@ -237,3 +237,55 @@ Built the initial Python LangGraph/LangChain deep research backend scaffold with
 ### Next Steps
 
 - None - task complete
+
+
+## Session 6: Expand Research Coverage And Stage Synthesis
+
+**Date**: 2026-04-15
+**Task**: Expand Research Coverage And Stage Synthesis
+**Branch**: `master`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Query rewrite | Split query rewrite into a dedicated service with LLM-assisted orthogonal query generation and deterministic fallback. |
+| Evidence extraction | Added source-local LLM evidence extraction with validation, dedupe, evidence typing, and fallback extraction. |
+| Research quality | Extended gap detection to use findings plus sources and emit coverage-aware gaps for recency, examples, and risks. |
+| Synthesis | Reworked report synthesis to build compact prompt payloads, guard prompt budgets, and fall back to staged section synthesis when single-call synthesis is too large. |
+| Runtime spec | Updated backend runtime spec with executable synthesis budget and staged-generation contracts. |
+
+**Validation**:
+- `uv run ruff check app tests`
+- `python3 -m compileall app tests`
+- `uv run pytest` (`57 passed`)
+
+**Key Files**:
+- `app/services/query_rewrite.py`
+- `app/services/evidence_extraction.py`
+- `app/services/research_quality.py`
+- `app/services/synthesis.py`
+- `.trellis/spec/backend/research-agent-runtime.md`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7ee1532` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
