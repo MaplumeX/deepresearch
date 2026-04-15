@@ -121,3 +121,49 @@ Built the initial Python LangGraph/LangChain deep research backend scaffold with
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: 升级 deep research 事件流显示
+
+**Date**: 2026-04-15
+**Task**: 升级 deep research 事件流显示
+**Branch**: `master`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| 领域 | 变更 |
+|------|------|
+| Backend | 为 research 运行增加结构化 progress 事件、阶段/任务子阶段信息，以及 `research_run_events` 持久化表。 |
+| Frontend | 在会话线程中新增 `ResearchProgressCard`，支持 live 进度显示和历史静态回放。 |
+| Contracts | 扩展 `RunDetail.progress_events` 和 research SSE `data.progress` 结构，并同步前后端类型。 |
+| Spec | 更新 backend runtime、frontend state management、frontend type safety 规范文档。 |
+
+**验证**:
+- `uv run ruff check app tests`
+- `python3 -m compileall app tests`
+- `uv run pytest`
+- `npm run lint`
+- `npm run build`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ccafd08` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
