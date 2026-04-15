@@ -54,3 +54,36 @@ Built the initial Python LangGraph/LangChain deep research backend scaffold with
 ### Next Steps
 
 - None - task complete
+
+
+## Session 2: 前端 UI 优化：主题切换与 Sidebar 折叠
+
+**Date**: 2026-04-15
+**Task**: 前端 UI 优化：主题切换与 Sidebar 折叠
+**Branch**: `master`
+
+### Summary
+
+新增深色/浅色主题切换和 Sidebar 可折叠功能。使用 Zustand 管理 UI 状态并持久化到 localStorage，主题在 React 渲染前初始化以避免闪烁。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d0a1df7` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
