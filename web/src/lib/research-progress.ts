@@ -35,7 +35,7 @@ export type ResearchProgressViewModel = {
   events: ResearchRunHistoryEvent[]
 }
 
-const PHASE_LABELS: Record<ResearchProgressPhase, string> = {
+export const PHASE_LABELS: Record<ResearchProgressPhase, string> = {
   queued: '已入队',
   clarifying_scope: '澄清研究范围',
   planning: '规划研究任务',
@@ -59,7 +59,7 @@ const STATUS_LABELS: Record<RunStatus, string> = {
   failed: '失败',
 }
 
-const PHASE_ORDER: ResearchProgressPhase[] = [
+export const PHASE_ORDER: ResearchProgressPhase[] = [
   'queued',
   'clarifying_scope',
   'planning',

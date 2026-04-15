@@ -1,40 +1,214 @@
 import { useState } from 'react'
-import { Activity, ChevronDown, ChevronUp, Clock3, ListChecks } from 'lucide-react'
+import { ChevronDown, ChevronRight, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   buildProgressViewModel,
   formatEventTime,
+  getProgressPayload,
+  PHASE_LABELS,
+  PHASE_ORDER,
 } from '@/lib/research-progress'
 import type {
   ResearchProgressPayload,
+  ResearchProgressPhase,
   ResearchRunHistoryEvent,
   RunDetail,
 } from '@/types/research'
 
-function toneClasses(tone: 'active' | 'success' | 'warning' | 'danger'): string {
-  switch (tone) {
-    case 'success':
-      return 'border-emerald-500/30 bg-emerald-500/5'
-    case 'warning':
-      return 'border-amber-500/30 bg-amber-500/5'
-    case 'danger':
-      return 'border-destructive/30 bg-destructive/5'
-    default:
-      return 'border-border bg-card/70'
+type PhaseState = 'complete' | 'current' | 'pending'
+
+function getPhaseState(
+  phase: ResearchProgressPhase,
+  current: ResearchProgressPhase,
+): PhaseState {
+  if (phase === current) return 'current'
+  const idx = PHASE_ORDER.indexOf(phase)
+  const curIdx = PHASE_ORDER.indexOf(current)
+  if (current === 'failed') {
+    if (phase === 'completed') return 'pending'
+    if (idx < curIdx) return 'complete'
+    return 'pending'
   }
+  if (idx < curIdx) return 'complete'
+  return 'pending'
 }
 
-function statusClasses(tone: 'active' | 'success' | 'warning' | 'danger'): string {
-  switch (tone) {
-    case 'success':
-      return 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-    case 'warning':
-      return 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
-    case 'danger':
-      return 'bg-destructive/10 text-destructive'
-    default:
-      return 'bg-primary/10 text-primary'
+function Dot({ state, isFailed }: { state: PhaseState; isFailed?: boolean }) {
+  return (
+    <div
+      className={cn(
+        'relative z-10 mt-1.5 h-2 w-2 rounded-full shrink-0',
+        state === 'complete' && 'bg-muted-foreground',
+        state === 'current' && !isFailed && 'bg-primary ring-2 ring-primary/20',
+        state === 'current' && isFailed && 'bg-destructive ring-2 ring-destructive/20',
+        state === 'pending' && 'border border-muted-foreground/40 bg-transparent',
+      )}
+    >
+      {state === 'current' && (
+        <span
+          className={cn(
+            'absolute inset-0 rounded-full animate-ping opacity-40',
+            isFailed ? 'bg-destructive' : 'bg-primary',
+          )}
+        />
+      )}
+    </div>
+  )
+}
+
+function TaskDetail({ task }: { task: NonNullable<ResearchProgressPayload['task']> }) {
+  return (
+    <div className="mt-1.5 rounded-md bg-muted/60 px-2.5 py-1.5 text-xs text-muted-foreground">
+      <div className="font-medium text-foreground/80">
+        任务 {task.index}/{task.total}
+        {task.title ? ` · ${task.title}` : null}
+      </div>
+      {task.worker_step && (
+        <div className="mt-0.5">
+          {task.worker_step === 'rewrite_queries' && '改写查询'}
+          {task.worker_step === 'search_and_rank' && '检索排序'}
+          {task.worker_step === 'acquire_and_filter' && '抓取筛选'}
+          {task.worker_step === 'extract_and_score' && '提取评分'}
+          {task.worker_step === 'emit_results' && '输出结果'}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ResearchTimeline({
+  phase,
+  task,
+  events,
+}: {
+  phase: ResearchProgressPhase
+  task: ResearchProgressPayload['task']
+  events: ResearchRunHistoryEvent[]
+}) {
+  const currentPhase = phase
+
+  // Build a quick lookup of the latest event message per phase
+  const messageByPhase = new Map<ResearchProgressPhase, string>()
+  for (const event of events) {
+    if (event.progress?.phase && event.message) {
+      messageByPhase.set(event.progress.phase, event.message)
+    }
   }
+
+  return (
+    <div className="relative pl-1">
+      {/* vertical connecting line */}
+      <div className="absolute left-[7px] top-2.5 bottom-2.5 w-px bg-border" />
+      <div className="space-y-1">
+        {PHASE_ORDER.map((phase) => {
+          // 把 completed 和 failed 合并为单一终态节点
+          if (phase === 'completed') {
+            const terminalPhase = currentPhase === 'failed' ? 'failed' : 'completed'
+            const state = getPhaseState(terminalPhase, currentPhase)
+            const isFailed = terminalPhase === 'failed'
+            const phaseMessage = messageByPhase.get(terminalPhase)
+
+            return (
+              <div key="terminal" className="relative flex items-start gap-3">
+                <Dot state={state} isFailed={isFailed} />
+                <div className="flex-1 min-w-0">
+                  <div
+                    className={cn(
+                      'text-sm leading-5',
+                      state === 'current'
+                        ? 'font-medium text-foreground'
+                        : state === 'pending'
+                          ? 'text-muted-foreground/50'
+                          : 'text-muted-foreground',
+                    )}
+                  >
+                    {PHASE_LABELS[terminalPhase]}
+                  </div>
+                  {phaseMessage && state !== 'pending' && (
+                    <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2">
+                      {phaseMessage}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )
+          }
+          if (phase === 'failed') return null
+
+          const state = getPhaseState(phase, currentPhase)
+          const phaseMessage = messageByPhase.get(phase)
+          const isExecuting = phase === 'executing_tasks' && state === 'current'
+
+          return (
+            <div key={phase} className="relative flex items-start gap-3">
+              <Dot state={state} />
+              <div className="flex-1 min-w-0">
+                <div
+                  className={cn(
+                    'text-sm leading-5',
+                    state === 'current'
+                      ? 'font-medium text-foreground'
+                      : state === 'pending'
+                        ? 'text-muted-foreground/50'
+                        : 'text-muted-foreground',
+                  )}
+                >
+                  {PHASE_LABELS[phase]}
+                </div>
+                {phaseMessage && state !== 'pending' && (
+                  <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2">
+                    {phaseMessage}
+                  </p>
+                )}
+                {isExecuting && task && <TaskDetail task={task} />}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function ResearchMetrics({
+  metrics,
+}: {
+  metrics: { label: string; value: string }[]
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {metrics.map((m) => (
+        <span
+          key={m.label}
+          className="inline-flex items-center rounded-md border border-border/60 bg-background/80 px-2 py-0.5 text-xs text-muted-foreground"
+        >
+          <span className="font-medium text-foreground">{m.value}</span>
+          <span className="ml-1">{m.label}</span>
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function ResearchEventLog({ events }: { events: ResearchRunHistoryEvent[] }) {
+  if (events.length === 0) return null
+  return (
+    <div className="mt-2 space-y-1 border-t border-border/40 pt-2">
+      {events.map((event, index) => (
+        <div
+          key={`${event.event_type}-${event.timestamp}-${index}`}
+          className="flex gap-2 text-xs text-muted-foreground"
+        >
+          <span className="tabular-nums shrink-0 text-muted-foreground/60">
+            {formatEventTime(event.timestamp)}
+          </span>
+          <span className="line-clamp-2">
+            {event.message || event.progress?.phase_label || event.event_type}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
 }
 
 export function ResearchProgressCard({
@@ -49,120 +223,72 @@ export function ResearchProgressCard({
   isLive?: boolean
 }) {
   const model = buildProgressViewModel(run, { liveProgress, liveEvents })
+  const progress = getProgressPayload(run, liveProgress ?? null, liveEvents)
   const [expanded, setExpanded] = useState(isLive)
 
+  const headerText = isLive
+    ? `Deep Research · ${model.phaseLabel}`
+    : `Deep Research · ${model.statusLabel}`
+
   return (
-    <div className={cn('rounded-2xl border px-4 py-4 shadow-sm', toneClasses(model.tone))}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-background/80 shadow-sm">
-              <Activity className="h-4 w-4" />
-            </div>
-            <div>
-              <div className="text-sm font-semibold text-foreground">
-                {isLive ? 'Deep Research 正在执行' : 'Deep Research 执行记录'}
-              </div>
-              <div className="text-sm text-muted-foreground">
-                {model.phaseLabel}
-              </div>
-            </div>
-          </div>
-
-          {model.summary && (
-            <p className="max-w-2xl text-sm leading-6 text-foreground/90">
-              {model.summary}
-            </p>
-          )}
-
-          {(model.taskLine || model.iterationLine) && (
-            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-              {model.taskLine && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-background/80 px-2.5 py-1">
-                  <ListChecks className="h-3.5 w-3.5" />
-                  {model.taskLine}
-                </span>
-              )}
-              {model.iterationLine && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-background/80 px-2.5 py-1">
-                  <Clock3 className="h-3.5 w-3.5" />
-                  {model.iterationLine}
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold">
-          <span className={cn('rounded-full px-3 py-1', statusClasses(model.tone))}>
-            {model.statusLabel}
-          </span>
-        </div>
-      </div>
-
-      <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">
-        {model.steps.map((step) => (
-          <div
-            key={step.label}
-            className={cn(
-              'rounded-xl border px-3 py-2 text-sm',
-              step.state === 'complete' && 'border-emerald-500/20 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300',
-              step.state === 'current' && 'border-primary/30 bg-primary/10 text-foreground',
-              step.state === 'pending' && 'border-border/70 bg-background/70 text-muted-foreground',
-            )}
-          >
-            {step.label}
-          </div>
-        ))}
-      </div>
-
-      {model.metrics.length > 0 && (
-        <div className="mt-4 flex flex-wrap gap-2">
-          {model.metrics.map((metric) => (
-            <div
-              key={metric.label}
-              className="rounded-full border border-border/70 bg-background/80 px-3 py-1 text-xs text-muted-foreground"
-            >
-              <span className="font-medium text-foreground">{metric.value}</span>
-              <span className="ml-1">{metric.label}</span>
-            </div>
-          ))}
-        </div>
+    <div
+      className={cn(
+        'rounded-xl border text-[15px] overflow-hidden transition-colors',
+        model.tone === 'success' && 'border-emerald-500/20 bg-emerald-500/[0.03]',
+        model.tone === 'warning' && 'border-amber-500/20 bg-amber-500/[0.03]',
+        model.tone === 'danger' && 'border-destructive/20 bg-destructive/[0.03]',
+        model.tone === 'active' && 'border-border/60 bg-muted/30',
       )}
-
-      {model.events.length > 0 && (
-        <div className="mt-4 border-t border-border/60 pt-3">
-          <button
-            type="button"
-            onClick={() => setExpanded((value) => !value)}
-            className="flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-            {expanded ? '收起事件明细' : `展开事件明细 (${model.events.length})`}
-          </button>
-
-          {expanded && (
-            <div className="mt-3 space-y-2">
-              {model.events.map((event, index) => (
-                <div
-                  key={`${event.event_type}-${event.timestamp}-${index}`}
-                  className="rounded-xl border border-border/60 bg-background/70 px-3 py-2"
-                >
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                    <span>{formatEventTime(event.timestamp)}</span>
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-foreground/80">
-                      {event.progress?.phase_label ?? event.event_type}
-                    </span>
-                  </div>
-                  {event.message && (
-                    <p className="mt-1 text-sm leading-6 text-foreground/90">
-                      {event.message}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
+    >
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center gap-2 px-3.5 py-2.5 text-left hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+      >
+        {expanded ? (
+          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+        ) : (
+          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+        )}
+        <Sparkles
+          className={cn(
+            'h-4 w-4 shrink-0',
+            model.tone === 'success' && 'text-emerald-600 dark:text-emerald-400',
+            model.tone === 'warning' && 'text-amber-600 dark:text-amber-400',
+            model.tone === 'danger' && 'text-destructive',
+            model.tone === 'active' && 'text-muted-foreground',
           )}
+        />
+        <span className="flex-1 text-sm text-muted-foreground truncate">
+          {headerText}
+        </span>
+        {isLive && (
+          <span className="relative flex h-2 w-2">
+            <span
+              className={cn(
+                'absolute inline-flex h-full w-full animate-ping rounded-full opacity-40',
+                model.tone === 'danger' ? 'bg-destructive' : 'bg-primary',
+              )}
+            />
+            <span
+              className={cn(
+                'relative inline-flex h-2 w-2 rounded-full',
+                model.tone === 'danger' ? 'bg-destructive' : 'bg-primary',
+              )}
+            />
+          </span>
+        )}
+      </button>
+
+      {expanded && (
+        <div className="px-3.5 pb-3.5 pt-1 space-y-3">
+          <ResearchTimeline phase={progress.phase} task={progress.task} events={model.events} />
+
+          {model.metrics.length > 0 && (
+            <ResearchMetrics metrics={model.metrics} />
+          )}
+
+          <ResearchEventLog events={model.events} />
         </div>
       )}
     </div>
