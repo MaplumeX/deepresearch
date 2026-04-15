@@ -165,8 +165,8 @@ def render_structured_report_markdown(
         blocks.append(f"## {section.heading}\n{body}")
 
     source_lines = [
-        f"- `{card.source_id}` [{card.title}]({card.url})"
-        for card in source_cards
+        f"{index + 1}. [{card.title}]({card.url})"
+        for index, card in enumerate(source_cards)
     ] or [labels.no_sources_line]
     blocks.append(f"## {labels.references_heading}\n" + "\n".join(source_lines))
     return "\n\n".join(block for block in blocks if block.strip())

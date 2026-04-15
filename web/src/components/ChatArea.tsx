@@ -9,25 +9,46 @@ import { cn } from '@/lib/utils'
 import { useChatStore } from '@/store/useChatStore'
 import type { SourceCard } from '@/types/research'
 
-function buildCitationIndexMap(sourceCards?: SourceCard[]): Map<string, number> {
+function buildCitationIndexMap(sourceCards?: SourceCard[], content?: string): Map<string, number> {
   const map = new Map<string, number>()
   sourceCards?.forEach((card, index) => {
     map.set(card.source_id, index + 1)
   })
+  if (content) {
+    const patterns = [/\[S([^\]]+)\]/g, /`S([^`]+)`/g]
+    for (const regex of patterns) {
+      let match: RegExpExecArray | null
+      while ((match = regex.exec(content)) !== null) {
+        const sourceId = `S${match[1]}`
+        if (!map.has(sourceId)) {
+          map.set(sourceId, map.size + 1)
+        }
+      }
+    }
+  }
   return map
 }
 
 function processCitations(content: string, indexMap: Map<string, number>): string {
-  return content.replace(/\[S([^\]]+)\]/g, (_, id) => {
+  // 替换正文中的引用 [Sxxx] -> [number](#cite-Sxxx)
+  content = content.replace(/\[S([^\]]+)\]/g, (_, id) => {
     const sourceId = `S${id}`
     const displayNumber = indexMap.get(sourceId) ?? sourceId
     return `[${displayNumber}](#cite-${sourceId})`
   })
+  // 兼容旧格式：参考资料列表中的 `Sxxx` -> [number]
+  // 支持无序列表 (- *)、有序列表 (1. 2.) 以及段落中的反引号
+  content = content.replace(/^(\s*(?:[-*]|\d+\.)\s*)`S([^`]+)`(\s+)/gm, (_, prefix, id, suffix) => {
+    const sourceId = `S${id}`
+    const displayNumber = indexMap.get(sourceId) ?? sourceId
+    return `${prefix}[${displayNumber}]${suffix}`
+  })
+  return content
 }
 
 function MarkdownContent({ content, sourceCards }: { content: string; sourceCards?: SourceCard[] }) {
   const sourceMap = new Map(sourceCards?.map((s) => [s.source_id, s]))
-  const indexMap = buildCitationIndexMap(sourceCards)
+  const indexMap = buildCitationIndexMap(sourceCards, content)
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
@@ -77,6 +98,8 @@ function MarkdownContent({ content, sourceCards }: { content: string; sourceCard
           </div>
         ),
         thead: ({ children }) => <thead className="bg-muted">{children}</thead>,
+        tbody: ({ children }) => <tbody>{children}</tbody>,
+        tr: ({ children }) => <tr>{children}</tr>,
         th: ({ children }) => (
           <th className="border border-border px-2 py-1 text-left font-medium">{children}</th>
         ),

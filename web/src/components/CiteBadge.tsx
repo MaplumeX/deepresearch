@@ -28,21 +28,27 @@ export function CiteBadge({
           className="max-w-xs bg-popover text-popover-foreground"
         >
           <div className="space-y-1.5">
-            <p className="font-medium leading-snug">{source?.title ?? sourceId}</p>
-            {source?.url && (
-              <a
-                href={source.url}
-                target="_blank"
-                rel="noreferrer"
-                className="block truncate text-xs text-primary underline"
-              >
-                {source.url}
-              </a>
-            )}
-            {source?.snippet && (
-              <p className="text-xs text-muted-foreground line-clamp-3">
-                {source.snippet}
-              </p>
+            {source ? (
+              <>
+                <p className="font-medium leading-snug">{source.title}</p>
+                {source.url && (
+                  <a
+                    href={source.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block truncate text-xs text-primary underline"
+                  >
+                    {source.url}
+                  </a>
+                )}
+                {source.snippet && (
+                  <p className="text-xs text-muted-foreground line-clamp-3">
+                    {source.snippet}
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">来源信息暂不可用 ({sourceId})</p>
             )}
           </div>
         </TooltipContent>
