@@ -87,3 +87,37 @@ Built the initial Python LangGraph/LangChain deep research backend scaffold with
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: 修复运行中会话删除保护
+
+**Date**: 2026-04-15
+**Task**: 修复运行中会话删除保护
+**Branch**: `master`
+
+### Summary
+
+为删除会话补上运行中 research/chat 工作的 409 保护，补充 API 回归测试与运行时契约文档，并完成任务归档。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `14e20f4` | (see git log) |
+| `d01f39b` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

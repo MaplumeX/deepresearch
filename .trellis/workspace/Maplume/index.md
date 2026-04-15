@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 2
+- **Total Sessions**: 3
 - **Last Active**: 2026-04-15
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~89 | Active |
+| `journal-1.md` | ~123 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 3 | 2026-04-15 | 修复运行中会话删除保护 | `14e20f4`, `d01f39b` | `master` |
 | 2 | 2026-04-15 | 前端 UI 优化：主题切换与 Sidebar 折叠 | `d0a1df7` | `master` |
 | 1 | 2026-04-13 | Scaffold Python deep research agent runtime | `5433f8e` | `master` |
 <!-- @@@/auto:session-history -->
