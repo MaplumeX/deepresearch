@@ -7,7 +7,7 @@ from app.domain.models import QualityGateResult, StructuredReport
 from app.runtime_progress import emit_progress
 from app.services.citations import find_missing_citations, has_citations
 from app.services.research_progress import build_counts, build_progress_payload
-from app.services.report_contract import derive_structured_report
+from app.services.report_contract import default_report_title, derive_structured_report
 
 
 def citation_audit(state: dict, config: dict | None = None) -> dict:
@@ -20,6 +20,7 @@ def citation_audit(state: dict, config: dict | None = None) -> dict:
         draft_report,
         sources,
         findings,
+        state.get("request", {}).get("output_language"),
     )
 
     if not draft_report.strip():
@@ -82,6 +83,7 @@ def _read_structured_report(
     draft_report: str,
     sources: dict[str, dict],
     findings: list[dict],
+    output_language: str | None,
 ) -> StructuredReport:
     if isinstance(value, dict) and value:
         try:
@@ -92,6 +94,7 @@ def _read_structured_report(
         markdown=draft_report,
         sources=sources,
         findings=findings,
+        title_hint=default_report_title(output_language),
     )
 
 
@@ -101,15 +104,17 @@ def _validate_structured_report(report: StructuredReport, findings: list[dict]) 
         warnings.append("Structured report does not include any sections.")
         return warnings
 
+    summary_headings = {"summary", "executive summary"}
+    non_evidence_headings = {"conversation context", "sources", "references", "open questions"}
     summary_section = next(
-        (section for section in report.sections if section.heading.casefold() == "executive summary"),
+        (section for section in report.sections if section.heading.casefold() in summary_headings),
         None,
     )
     if findings and summary_section is not None and not summary_section.cited_source_ids:
-        warnings.append("Executive summary does not include inline citations.")
+        warnings.append("Summary does not include inline citations.")
 
     for section in report.sections:
-        if section.heading.casefold() in {"conversation context", "sources", "open questions", "executive summary"}:
+        if section.heading.casefold() in non_evidence_headings | summary_headings:
             continue
         if findings and section.body_markdown.strip() and not section.cited_source_ids:
             warnings.append(f"Section '{section.heading}' does not include inline citations.")

@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from app.config import Settings
 from app.domain.models import ReportDraft, ReportSectionDraft
-from app.services.synthesis import _build_compact_payload, synthesize_report
+from app.services.synthesis import _build_compact_payload, _normalize_task_heading, synthesize_report
 
 
 class SynthesisServiceTest(unittest.TestCase):
@@ -30,10 +30,10 @@ class SynthesisServiceTest(unittest.TestCase):
             enable_llm_synthesis=False,
         )
 
-    def test_fallback_synthesis_includes_memory_context_section(self) -> None:
+    def test_fallback_synthesis_uses_summary_task_sections_and_conclusion(self) -> None:
         report = synthesize_report(
             question="Can you continue this analysis?",
-            tasks=[{"task_id": "task-1", "title": "Topic"}],
+            tasks=[{"task_id": "task-1", "title": "Assess topic coverage"}],
             findings=[
                 {
                     "task_id": "task-1",
@@ -61,22 +61,25 @@ class SynthesisServiceTest(unittest.TestCase):
                 "key_facts": [],
                 "open_questions": [],
             },
+            output_language="en",
         )
 
         self.assertEqual(report.title, "Research Report")
-        self.assertIn("## Conversation Context", report.markdown)
-        self.assertIn("Not a citation source", report.markdown)
+        self.assertIn("## Summary", report.markdown)
+        self.assertIn("## Topic coverage", report.markdown)
+        self.assertIn("## Conclusion", report.markdown)
+        self.assertNotIn("## Conversation Context", report.markdown)
         self.assertEqual(report.cited_source_ids, ["Ssource001"])
         self.assertEqual(report.citation_index[0].source_id, "Ssource001")
         self.assertEqual(report.source_cards[0].source_id, "Ssource001")
-        self.assertEqual(report.sections[0].heading, "Executive Summary")
-        self.assertEqual(report.sections[1].heading, "Conversation Context")
-        self.assertEqual(report.sections[2].heading, "Key Findings")
+        self.assertEqual(report.sections[0].heading, "Summary")
+        self.assertEqual(report.sections[1].heading, "Topic coverage")
+        self.assertEqual(report.sections[2].heading, "Conclusion")
 
-    def test_fallback_synthesis_groups_examples_and_risks(self) -> None:
+    def test_fallback_synthesis_uses_task_sections_and_risks(self) -> None:
         report = synthesize_report(
             question="How should we evaluate deep research coverage?",
-            tasks=[{"task_id": "task-1", "title": "Coverage"}],
+            tasks=[{"task_id": "task-1", "title": "Evaluate deep research coverage"}],
             findings=[
                 {
                     "task_id": "task-1",
@@ -117,11 +120,13 @@ class SynthesisServiceTest(unittest.TestCase):
             },
             settings=self.settings,
             memory=None,
+            output_language="en",
         )
 
         headings = [section.heading for section in report.sections]
-        self.assertIn("Evidence and Examples", headings)
+        self.assertIn("Deep research coverage", headings)
         self.assertIn("Risks and Limitations", headings)
+        self.assertIn("Conclusion", headings)
 
     def test_compact_payload_excludes_raw_source_content(self) -> None:
         payload = _build_compact_payload(
@@ -182,7 +187,11 @@ class SynthesisServiceTest(unittest.TestCase):
             summary="- Fact [Ssource001]",
             sections=[
                 ReportSectionDraft(
-                    heading="Key Findings",
+                    heading="Topic",
+                    body_markdown="- Fact [Ssource001]",
+                ),
+                ReportSectionDraft(
+                    heading="Conclusion",
                     body_markdown="- Fact [Ssource001]",
                 )
             ],
@@ -217,11 +226,79 @@ class SynthesisServiceTest(unittest.TestCase):
                 },
                 settings=llm_settings,
                 memory=None,
+                output_language="en",
             )
 
         mock_single.assert_not_called()
         mock_multi.assert_called_once()
-        self.assertIn("## Key Findings", report.markdown)
+        self.assertIn("## Summary", report.markdown)
+        self.assertIn("## Topic", report.markdown)
+        self.assertIn("## Conclusion", report.markdown)
+
+    def test_normalize_task_heading_strips_action_prefixes(self) -> None:
+        self.assertEqual(
+            _normalize_task_heading({"title": "Recover search coverage for primary sources"}),
+            "Search coverage for primary sources",
+        )
+        self.assertEqual(
+            _normalize_task_heading({"title": "评估 OpenAI 与 Anthropic 的研究能力差异"}),
+            "OpenAI 与 Anthropic 的研究能力差异",
+        )
+
+    def test_fallback_synthesis_localizes_fixed_headings_for_chinese(self) -> None:
+        report = synthesize_report(
+            question="请继续分析这个问题",
+            tasks=[{"task_id": "task-1", "title": "评估研究覆盖质量"}],
+            findings=[
+                {
+                    "task_id": "task-1",
+                    "claim": "事实",
+                    "snippet": "事实",
+                    "source_id": "Ssource001",
+                    "confidence": 0.8,
+                    "relevance_score": 0.7,
+                },
+                {
+                    "task_id": "task-1",
+                    "claim": "存在样本偏差风险。",
+                    "snippet": "存在样本偏差风险。",
+                    "source_id": "Srisk001",
+                    "evidence_type": "risk",
+                    "confidence": 0.7,
+                    "relevance_score": 0.6,
+                },
+            ],
+            sources={
+                "Ssource001": {
+                    "title": "来源",
+                    "url": "https://example.com",
+                    "content": "事实",
+                    "providers": ["tavily"],
+                    "acquisition_method": "http_fetch",
+                    "fetched_at": "2026-04-14T08:00:00+00:00",
+                },
+                "Srisk001": {
+                    "title": "风险来源",
+                    "url": "https://example.com/risk",
+                    "content": "存在样本偏差风险。",
+                    "providers": ["tavily"],
+                    "acquisition_method": "http_fetch",
+                    "fetched_at": "2026-04-14T08:00:00+00:00",
+                },
+            },
+            settings=self.settings,
+            memory=None,
+            output_language="zh-CN",
+        )
+
+        headings = [section.heading for section in report.sections]
+        self.assertEqual(report.title, "研究报告")
+        self.assertIn("## 摘要", report.markdown)
+        self.assertIn("## 研究覆盖质量", report.markdown)
+        self.assertIn("## 风险与局限", report.markdown)
+        self.assertIn("## 结论", report.markdown)
+        self.assertIn("## 参考资料", report.markdown)
+        self.assertEqual(headings[0], "摘要")
 
 
 if __name__ == "__main__":

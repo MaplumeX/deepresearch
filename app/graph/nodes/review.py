@@ -4,7 +4,7 @@ from langgraph.types import interrupt
 
 from app.runtime_progress import emit_progress
 from app.services.research_progress import build_progress_payload
-from app.services.report_contract import derive_structured_report
+from app.services.report_contract import default_report_title, derive_structured_report
 
 
 def human_review(state: dict, config: dict | None = None) -> dict:
@@ -38,7 +38,10 @@ def human_review(state: dict, config: dict | None = None) -> dict:
                 markdown=final_report,
                 sources=state.get("sources", {}),
                 findings=state.get("findings", []),
-                title_hint=state.get("draft_structured_report", {}).get("title", "Research Report"),
+                title_hint=state.get("draft_structured_report", {}).get(
+                    "title",
+                    default_report_title(state.get("request", {}).get("output_language")),
+                ),
             ).model_dump()
     return {
         "final_report": final_report,

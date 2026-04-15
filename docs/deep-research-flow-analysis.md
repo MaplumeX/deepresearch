@@ -293,7 +293,7 @@ flowchart TD
 这份 memory 会传给：
 
 - `plan_research_tasks()`，用于延续上下文和术语
-- `synthesize_report()`，用于输出带背景的 `Conversation Context` 段落
+- `synthesize_report()`，用于在综合时延续上下文和术语，但不会把 memory 直接渲染成最终报告章节
 
 但代码中也明确做了约束：
 

@@ -78,6 +78,78 @@ class CitationAuditTest(unittest.TestCase):
         self.assertTrue(result["review_required"])
         self.assertIn("Section 'Analysis' does not include inline citations.", result["warnings"])
 
+    def test_accepts_summary_heading_for_cited_summary_checks(self) -> None:
+        state = {
+            "draft_report": "# Research Report\n\n## Summary\n- Fact [Sabc12345]\n\n## Topic\n- Fact [Sabc12345]",
+            "draft_structured_report": {
+                "title": "Research Report",
+                "summary": "- Fact [Sabc12345]",
+                "markdown": "# Research Report\n\n## Summary\n- Fact [Sabc12345]\n\n## Topic\n- Fact [Sabc12345]",
+                "sections": [
+                    {
+                        "section_id": "summary",
+                        "heading": "Summary",
+                        "body_markdown": "- Fact [Sabc12345]",
+                        "cited_source_ids": ["Sabc12345"],
+                    },
+                    {
+                        "section_id": "topic",
+                        "heading": "Topic",
+                        "body_markdown": "- Fact [Sabc12345]",
+                        "cited_source_ids": ["Sabc12345"],
+                    },
+                ],
+                "cited_source_ids": ["Sabc12345"],
+                "citation_index": [
+                    {
+                        "source_id": "Sabc12345",
+                        "title": "Known",
+                        "url": "https://example.com",
+                        "snippet": "Fact",
+                        "providers": ["tavily"],
+                        "acquisition_method": "http_fetch",
+                        "cited_in_sections": ["summary", "topic"],
+                        "occurrence_count": 2,
+                        "relevance_score": 0.7,
+                        "confidence": 0.8,
+                    }
+                ],
+                "source_cards": [
+                    {
+                        "source_id": "Sabc12345",
+                        "title": "Known",
+                        "url": "https://example.com",
+                        "snippet": "Fact",
+                        "providers": ["tavily"],
+                        "acquisition_method": "http_fetch",
+                        "fetched_at": "2026-04-14T08:00:00+00:00",
+                        "is_cited": True,
+                    }
+                ],
+            },
+            "sources": {
+                "Sabc12345": {
+                    "title": "Known",
+                    "url": "https://example.com",
+                }
+            },
+            "findings": [
+                {
+                    "task_id": "task-1",
+                    "claim": "Fact",
+                    "source_id": "Sabc12345",
+                }
+            ],
+            "quality_gate": {},
+            "warnings": [],
+            "review_required": False,
+        }
+
+        result = citation_audit(state)
+
+        self.assertFalse(result["review_required"])
+        self.assertNotIn("Summary does not include inline citations.", result["warnings"])
+
 
 if __name__ == "__main__":
     unittest.main()

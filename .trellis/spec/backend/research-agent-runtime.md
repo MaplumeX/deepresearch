@@ -206,13 +206,14 @@ def emit_results_node(state: dict) -> dict
 Implementation path for the structured report contract:
 
 - `app/services/synthesis.py::synthesize_report()` builds the report draft and delegates final normalization.
+- `app/services/report_contract.py::get_report_labels()` is the single source of truth for localized fixed report labels.
 - `app/services/report_contract.py::build_structured_report()` is the canonical constructor for `draft_structured_report`.
 - `app/services/report_contract.py::derive_structured_report()` is the canonical recovery path when human review edits raw markdown.
-- `app/graph/nodes/synthesize.py::synthesize_report_node()` writes `draft_report` and `draft_structured_report`.
+- `app/graph/nodes/synthesize.py::synthesize_report_node()` passes `request.output_language`, then writes `draft_report` and `draft_structured_report`.
 - `app/graph/nodes/audit.py::citation_audit()` validates markdown + structured-report consistency.
-- `app/graph/nodes/review.py::human_review()` regenerates `final_structured_report` from edited markdown.
+- `app/graph/nodes/review.py::human_review()` regenerates `final_structured_report` from edited markdown and falls back to a localized title via `default_report_title()`.
 - `web/src/types/research.ts` mirrors the backend payload shape.
-- `web/src/lib/report.ts` is the frontend boundary for reading and linkifying report payloads.
+- `web/src/components/ChatArea.tsx` is the current frontend boundary for rendering report markdown and linkifying citation badges from `source_cards`.
 
 Synthesis budget and staged generation contract:
 
@@ -231,7 +232,17 @@ def synthesize_report(
     sources: dict[str, dict],
     settings: Settings,
     memory: dict[str, Any] | None = None,
+    output_language: str | None = None,
 ) -> StructuredReport
+
+def build_structured_report(
+    draft: ReportDraft,
+    sources: dict[str, dict],
+    findings: list[dict],
+    output_language: str | None = None,
+) -> StructuredReport
+
+def get_report_labels(output_language: str | None) -> ReportLabels
 
 def _build_compact_payload(
     question: str,
@@ -249,6 +260,7 @@ def _maybe_synthesize_single_call(
     question: str,
     payload: CompactPayload,
     settings: Settings,
+    labels: ReportLabels,
 ) -> ReportDraft | None
 
 def _maybe_synthesize_multi_stage(
@@ -258,6 +270,7 @@ def _maybe_synthesize_multi_stage(
     sources: dict[str, dict],
     settings: Settings,
     memory_brief: str,
+    labels: ReportLabels,
 ) -> ReportDraft | None
 ```
 
@@ -281,12 +294,36 @@ Compact payload rules:
   `task_id`, `source_id`, `claim`, `snippet`, `evidence_type`, `source_role`, `confidence`, `relevance_score`, `title`, `url`
 - Raw `sources[*].content` must not be passed through to the prompt as a top-level field. If no snippet exists, a trimmed fallback snippet may be derived from content inside `_build_compact_sources()`.
 
+Localized fixed-label rules:
+
+- `output_language == "en"` must default fixed labels to:
+  `Research Report`, `Summary`, `Risks and Limitations`, `Conclusion`, `References`
+- `output_language == "zh-CN"` or `None` must default fixed labels to:
+  `研究报告`, `摘要`, `风险与局限`, `结论`, `参考资料`
+- `build_structured_report()` must prepend the localized summary heading when `draft.summary` is non-empty.
+- `render_structured_report_markdown()` must always append a localized references section, even when no cited sources exist.
+- `derive_structured_report()` must preserve compatibility with edited markdown that uses legacy headings:
+  summary headings: `Summary`, `Executive Summary`, `摘要`
+  reference headings: `References`, `Sources`, `参考资料`
+
+Default report-structure rules:
+
+- Final report defaults must be:
+  localized summary section
+  zero or more task-based chapters derived from `task.title`
+  optional localized risk section when `evidence_type in {"risk", "limitation"}`
+  localized conclusion section
+  localized references section
+- `synthesize_report()` must not inject `Conversation Context` or `Open Questions` into the final default report output.
+- Task chapter ordering must follow task order from `tasks`, then risk section, then conclusion.
+- Task chapter headings may be normalized into report-style headings by stripping imperative prefixes such as `Assess`, `Evaluate`, `Recover`, `评估`, `分析`.
+
 Routing rules:
 
 - If `payload.estimated_size <= settings.synthesis_soft_char_limit` and the payload stays within `synthesis_max_findings_per_call` plus `synthesis_max_sources_per_call`, `synthesize_report()` may call `_maybe_synthesize_single_call()`.
 - If the compact payload exceeds the soft limit or record-count limits, `synthesize_report()` must switch to `_maybe_synthesize_multi_stage()`.
-- Multi-stage synthesis must split by semantic section first, not by arbitrary character ranges. Current section headings are:
-  `Key Findings`, `Evidence and Examples`, `Risks and Limitations`, `Open Questions`
+- Multi-stage synthesis must split by semantic report sections first, not by arbitrary character ranges. Current default section groups are:
+  task-based chapters, localized risk section, localized conclusion section
 - If a section chunk still exceeds `settings.synthesis_hard_char_limit`, that chunk must skip the LLM call and fall back to deterministic section rendering.
 - `build_structured_report()` still receives the original `sources` and `findings` so citation auditing and source cards remain based on canonical state, not the compact prompt payload.
 
@@ -300,6 +337,8 @@ Routing rules:
 | LLM import or invoke fails during single-call synthesis | `_maybe_synthesize_single_call()` | return `None`; caller must continue to staged synthesis or deterministic fallback |
 | LLM import or invoke fails during staged synthesis | `_maybe_synthesize_section_with_llm()` | return `None`; caller must render that section deterministically |
 | compact source payload includes raw `content` field | `tests/unit/test_synthesis.py::test_compact_payload_excludes_raw_source_content` | fail the unit test; this shape is forbidden |
+| `output_language` is `zh-CN` or omitted | `get_report_labels()` | use Chinese fixed report labels for title, summary, risk, conclusion, and references |
+| `output_language` is `en` | `get_report_labels()` | use English fixed report labels for title, summary, risk, conclusion, and references |
 
 Structured report validation and error matrix:
 
@@ -309,7 +348,7 @@ Structured report validation and error matrix:
 | findings exist but markdown has no `[S...]` citation | `has_citations(draft_report)` in `citation_audit()` | append `Draft report does not include inline citations.` | Yes in practice, because section-level citation validation also fails |
 | markdown references a `source_id` not present in `sources` | `find_missing_citations(draft_report, sources)` | append `Draft report references unknown citations: ...` | Yes |
 | structured report has no sections while findings exist | `_validate_structured_report()` in `citation_audit()` | append `Structured report does not include any sections.` | Yes |
-| `Executive Summary` exists but has no citation | `_validate_structured_report()` in `citation_audit()` | append `Executive summary does not include inline citations.` | Yes |
+| summary section with heading `Summary`, `Executive Summary`, or `摘要` exists but has no citation | `_validate_structured_report()` in `citation_audit()` | append `Summary does not include inline citations.` | Yes |
 | non-background analysis section has content but no citation | `_validate_structured_report()` in `citation_audit()` | append `Section '<heading>' does not include inline citations.` | Yes |
 | `cited_source_ids` and `citation_index[*].source_id` diverge | `_validate_structured_report()` in `citation_audit()` | append `Structured report citation index is out of sync with cited sources.` | Yes |
 
@@ -318,15 +357,19 @@ Good / Base / Bad cases for this contract:
 - Good:
   `synthesize_report_node()` produces `draft_report` plus `draft_structured_report`, every evidence-bearing section contains `[S...]`, and `citation_index` / `source_cards` reflect the same cited sources.
 - Good:
-  synthesis input is compacted first, the report stays under prompt limits, and the LLM returns a single structured draft without exposing raw source content in the prompt payload.
+  synthesis input is compacted first, the report stays under prompt limits, the LLM returns a single structured draft without exposing raw source content in the prompt payload, and fixed headings follow `request.output_language`.
 - Base:
   Human review edits markdown via `edited_report`; `human_review()` accepts the markdown and rebuilds `final_structured_report` with `derive_structured_report()` so the final payload is still structured.
 - Base:
-  single-call synthesis is too large, so `_maybe_synthesize_multi_stage()` generates section drafts and deterministic merge logic assembles the final report while preserving citations.
+  single-call synthesis is too large, so `_maybe_synthesize_multi_stage()` generates task/risk/conclusion drafts and deterministic merge logic assembles the final report while preserving citations.
+- Base:
+  human-edited markdown still uses `Executive Summary`; `derive_structured_report()` must treat it as the summary section during rebuild.
 - Bad:
   Markdown includes `"[Sdeadbeef]"` that does not exist in `sources`, or an analysis section omits citations while findings exist; `citation_audit()` must append warnings and set `review_required = True`.
 - Bad:
   `app/services/synthesis.py` sends the entire `sources` dict including full `content` bodies directly to the LLM, which can trigger upstream `Input length exceeds the maximum length` failures and breaks the compact-payload contract.
+- Bad:
+  default synthesis emits `Conversation Context` as a visible report chapter, which leaks continuity-only memory into the final report structure instead of keeping it prompt-only.
 
 Required tests and assertion points for this contract:
 
@@ -335,15 +378,17 @@ Required tests and assertion points for this contract:
 - `tests/unit/test_synthesis.py`
   Assert `_build_compact_payload()` excludes raw source `content` from prompt payloads.
 - `tests/unit/test_synthesis.py`
-  Assert synthesis switches to staged generation when `synthesis_soft_char_limit` is exceeded.
+  Assert fallback synthesis uses localized summary + task chapters + localized conclusion instead of `Conversation Context` or `Key Findings`.
 - `tests/unit/test_config.py`
   Assert synthesis budget env defaults load from `Settings`.
 - `tests/unit/test_audit.py`
   Assert missing section citations trigger warnings and `review_required = True`.
-- `web/src/lib/report.test.ts`
-  Assert frontend readers decode structured payloads and linkify inline citations.
-- `web/src/components/StructuredReportView.test.tsx`
-  Assert the detail UI renders sections, source anchors, and cited source cards from the structured payload.
+- `tests/unit/test_synthesis.py`
+  Assert synthesis switches to staged generation when `synthesis_soft_char_limit` is exceeded and keeps the report-style section layout.
+- `tests/unit/test_synthesis.py`
+  Assert `output_language="zh-CN"` localizes title and fixed headings.
+- `tests/unit/test_audit.py`
+  Assert `Summary` heading is accepted by citation audit and does not trigger a false positive.
 
 #### Wrong vs Correct
 
@@ -366,13 +411,22 @@ Correct:
 
 ```python
 payload = _build_compact_payload(question, tasks, findings, sources, memory_brief)
+labels = get_report_labels(output_language)
 if _should_keep_payload_together(payload, settings):
-    drafted = _maybe_synthesize_single_call(question, payload, settings)
+    drafted = _maybe_synthesize_single_call(question, payload, settings, labels)
 else:
-    drafted = _maybe_synthesize_multi_stage(question, tasks, findings, sources, settings, memory_brief)
+    drafted = _maybe_synthesize_multi_stage(
+        question,
+        tasks,
+        findings,
+        sources,
+        settings,
+        memory_brief,
+        labels,
+    )
 ```
 
-- Reason: prompt size is bounded before LLM invocation, single-call synthesis remains the fast path, and large reports degrade to staged synthesis instead of provider-side length errors.
+- Reason: prompt size is bounded before LLM invocation, fixed labels stay aligned with `output_language`, single-call synthesis remains the fast path, and large reports degrade to staged synthesis instead of provider-side length errors.
 
 #### Conversation Message Contract
 

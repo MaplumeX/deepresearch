@@ -32,6 +32,7 @@ def synthesize_report_node(state: dict, config: dict | None = None) -> dict:
         sources=state.get("sources", {}),
         settings=get_settings(),
         memory=state.get("memory"),
+        output_language=state.get("request", {}).get("output_language"),
     )
     return {
         "draft_report": report.markdown,

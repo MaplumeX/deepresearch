@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from dataclasses import dataclass
 from typing import Any
 
 from app.domain.models import (
@@ -16,25 +17,71 @@ from app.services.citations import extract_citation_ids
 
 _HEADING_PATTERN = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 _TITLE_PATTERN = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
-_SOURCES_HEADING = "sources"
-_CONTEXT_HEADING = "conversation context"
-_OPEN_QUESTIONS_HEADING = "open questions"
+_REFERENCE_HEADINGS = {"references", "sources", "参考资料"}
+_CONTEXT_HEADINGS = {"conversation context", "对话上下文"}
+_OPEN_QUESTIONS_HEADINGS = {"open questions", "待解决问题", "开放问题"}
+_SUMMARY_HEADINGS = {"summary", "executive summary", "摘要"}
 _MAX_SNIPPET_LENGTH = 240
+
+
+@dataclass(frozen=True, slots=True)
+class ReportLabels:
+    title: str
+    summary_heading: str
+    risks_heading: str
+    conclusion_heading: str
+    references_heading: str
+    no_sources_line: str
+    no_evidence_line: str
+    question_prefix: str
+    language_name: str
+
+
+def get_report_labels(output_language: str | None) -> ReportLabels:
+    if output_language == "en":
+        return ReportLabels(
+            title="Research Report",
+            summary_heading="Summary",
+            risks_heading="Risks and Limitations",
+            conclusion_heading="Conclusion",
+            references_heading="References",
+            no_sources_line="- No sources available.",
+            no_evidence_line="- No evidence was collected yet.",
+            question_prefix="Question",
+            language_name="English",
+        )
+    return ReportLabels(
+        title="研究报告",
+        summary_heading="摘要",
+        risks_heading="风险与局限",
+        conclusion_heading="结论",
+        references_heading="参考资料",
+        no_sources_line="- 暂无参考资料。",
+        no_evidence_line="- 暂无可用证据。",
+        question_prefix="问题",
+        language_name="Chinese (Simplified)",
+    )
+
+
+def default_report_title(output_language: str | None) -> str:
+    return get_report_labels(output_language).title
 
 
 def build_structured_report(
     draft: ReportDraft,
     sources: dict[str, dict],
     findings: list[dict],
+    output_language: str | None = None,
 ) -> StructuredReport:
+    labels = get_report_labels(output_language)
     sections: list[ReportSection] = []
     if draft.summary.strip():
         sections.append(
             ReportSection(
-                section_id="executive-summary",
-                heading="Executive Summary",
+                section_id="summary",
+                heading=labels.summary_heading,
                 body_markdown=draft.summary.strip(),
-                cited_source_ids=_extract_section_citations("Executive Summary", draft.summary),
+                cited_source_ids=_extract_section_citations(labels.summary_heading, draft.summary),
             )
         )
     for index, section in enumerate(draft.sections, start=1):
@@ -59,6 +106,7 @@ def build_structured_report(
         summary=draft.summary,
         sections=sections,
         source_cards=source_cards,
+        output_language=output_language,
     )
     return StructuredReport(
         title=draft.title,
@@ -100,11 +148,13 @@ def render_structured_report_markdown(
     summary: str,
     sections: list[ReportSection],
     source_cards: list[SourceCard],
+    output_language: str | None = None,
 ) -> str:
+    labels = get_report_labels(output_language)
     blocks = [f"# {title}".strip()]
     summary_block = summary.strip()
     if summary_block:
-        blocks.append("## Executive Summary\n" + summary_block)
+        blocks.append(f"## {labels.summary_heading}\n" + summary_block)
 
     for section in sections:
         if _is_summary_heading(section.heading):
@@ -117,8 +167,8 @@ def render_structured_report_markdown(
     source_lines = [
         f"- `{card.source_id}` [{card.title}]({card.url})"
         for card in source_cards
-    ] or ["- No sources available."]
-    blocks.append("## Sources\n" + "\n".join(source_lines))
+    ] or [labels.no_sources_line]
+    blocks.append(f"## {labels.references_heading}\n" + "\n".join(source_lines))
     return "\n\n".join(block for block in blocks if block.strip())
 
 
@@ -314,11 +364,11 @@ def _extract_section_citations(heading: str, body_markdown: str) -> list[str]:
 
 def _is_non_evidence_section(heading: str) -> bool:
     normalized = heading.strip().casefold()
-    return normalized in {_SOURCES_HEADING, _CONTEXT_HEADING, _OPEN_QUESTIONS_HEADING}
+    return normalized in _REFERENCE_HEADINGS | _CONTEXT_HEADINGS | _OPEN_QUESTIONS_HEADINGS
 
 
 def _is_summary_heading(heading: str) -> bool:
-    return heading.strip().casefold() == "executive summary"
+    return heading.strip().casefold() in _SUMMARY_HEADINGS
 
 
 def _make_section_id(heading: str, index: int) -> str:
