@@ -1,0 +1,7 @@
+{"file": ".gemini/commands/trellis/finish-work.toml", "reason": "Finish work checklist"}
+{"file": ".gemini/commands/trellis/check.toml", "reason": "Code quality check spec"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Verify the delete guard stays at the API/runtime boundary."}
+{"file": ".trellis/spec/backend/research-agent-runtime.md", "reason": "Verify route and runtime contract coverage for conversation deletion."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify the fix remains minimal and runtime-safe."}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Verify the conflict response is explicit and consistent."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify API, persistence, and runtime behavior stay aligned."}

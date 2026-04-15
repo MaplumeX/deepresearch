@@ -1,0 +1,7 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "API route and runtime persistence responsibilities for delete guard."}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Keep the fix minimal and behavior-focused while preserving runtime correctness."}
+{"file": ".trellis/spec/backend/research-agent-runtime.md", "reason": "Route behavior changes affect runtime/API contracts around conversations and runs."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Deletion crosses API, persistence, and background runtime boundaries."}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Delete now needs an explicit conflict response when work is active."}
