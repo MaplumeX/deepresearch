@@ -6,6 +6,7 @@ import { Bot, X } from 'lucide-react'
 import { ResearchProgressCard } from './ResearchProgressCard'
 import { CiteBadge } from './CiteBadge'
 import { cn } from '@/lib/utils'
+import { getStructuredReport } from '@/lib/research-result'
 import { useChatStore } from '@/store/useChatStore'
 import type { SourceCard } from '@/types/research'
 
@@ -179,9 +180,7 @@ export function ChatArea() {
 
         {messages.map((msg) => {
           const researchRun = msg.run_id ? (runById.get(msg.run_id) ?? null) : null
-          const structuredReport = researchRun?.result?.final_structured_report
-            ?? researchRun?.result?.draft_structured_report
-            ?? null
+          const structuredReport = getStructuredReport(researchRun?.result)
           const sourceCards = structuredReport?.source_cards
 
           return (
@@ -269,8 +268,7 @@ export function ChatArea() {
                 <div className="rounded-2xl leading-relaxed">
                   <MarkdownContent
                     content={streamingAssistantPreview}
-                    sourceCards={liveRun.result?.final_structured_report?.source_cards
-                      ?? liveRun.result?.draft_structured_report?.source_cards}
+                    sourceCards={getStructuredReport(liveRun.result)?.source_cards}
                   />
                 </div>
               )}
