@@ -341,3 +341,61 @@ Built the initial Python LangGraph/LangChain deep research backend scaffold with
 ### Next Steps
 
 - None - task complete
+
+
+## Session 8: 增强 HTTP 抓取与分层 fallback
+
+**Date**: 2026-04-15
+**Task**: 增强 HTTP 抓取与分层 fallback
+**Branch**: `master`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Local extraction | Added staged local extraction with selectolax, trafilatura, readability-lxml, and regex fallback for Chinese article pages |
+| Quality gating | Added normalized extraction metadata, quality-failure reasons, and blocked-page detection for filtering and scoring |
+| Remote fallback | Added Jina Reader then Firecrawl fallback routing in the research worker with explicit acquisition methods |
+| Contracts | Extended runtime spec with executable fetch fallback contracts, env keys, routing order, and test assertions |
+| Validation | Passed compileall, Ruff, targeted tests, and full pytest suite (80 passed) |
+
+**Updated Files**:
+- `.trellis/spec/backend/research-agent-runtime.md`
+- `.trellis/tasks/04-15-improve-http-fetch-capability/prd.md`
+- `app/config.py`
+- `app/domain/models.py`
+- `app/graph/subgraphs/research_worker.py`
+- `app/services/evidence_extraction.py`
+- `app/services/research_worker.py`
+- `app/services/source_content.py`
+- `app/tools/extract.py`
+- `app/tools/fetch.py`
+- `pyproject.toml`
+- `tests/unit/test_config.py`
+- `tests/unit/test_extract_tool.py`
+- `tests/unit/test_research_worker_service.py`
+- `tests/unit/test_research_worker_subgraph.py`
+- `tests/unit/test_source_content.py`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `141dc7d` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

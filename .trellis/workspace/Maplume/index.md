@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 7
+- **Total Sessions**: 8
 - **Last Active**: 2026-04-15
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~343 | Active |
+| `journal-1.md` | ~401 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 8 | 2026-04-15 | 增强 HTTP 抓取与分层 fallback | `141dc7d` | `master` |
 | 7 | 2026-04-15 | 研究报告输出章节化与本地化 | `0d5ff0d` | `master` |
 | 6 | 2026-04-15 | Expand Research Coverage And Stage Synthesis | `7ee1532` | `master` |
 | 5 | 2026-04-15 | 重构前端侧边栏（方案B） | `0607ca8` | `master` |
