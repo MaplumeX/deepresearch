@@ -59,40 +59,38 @@ export function ConversationItem({
           <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
         )}
 
-        <div className="max-w-0 overflow-hidden transition-all duration-200 ease-out group-hover:max-w-20 shrink-0">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity ml-1 shrink-0"
-                aria-label="More options"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <MoreVertical className="h-4 w-4 opacity-70" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-40">
-              <DropdownMenuItem onClick={onPin} className="gap-2">
-                {isPinned ? (
-                  <>
-                    <PinOff className="h-4 w-4" />
-                    取消置顶
-                  </>
-                ) : (
-                  <>
-                    <Pin className="h-4 w-4" />
-                    置顶
-                  </>
-                )}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={onDelete} variant="destructive" className="gap-2">
-                <Trash2 className="h-4 w-4" />
-                删除
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 opacity-0 group-hover:opacity-100 focus:opacity-100 data-[state=open]:opacity-100 transition-opacity ml-1 shrink-0"
+              aria-label="More options"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <MoreVertical className="h-4 w-4 opacity-70" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-40">
+            <DropdownMenuItem onClick={onPin} className="gap-2">
+              {isPinned ? (
+                <>
+                  <PinOff className="h-4 w-4" />
+                  取消置顶
+                </>
+              ) : (
+                <>
+                  <Pin className="h-4 w-4" />
+                  置顶
+                </>
+              )}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onDelete} variant="destructive" className="gap-2">
+              <Trash2 className="h-4 w-4" />
+              删除
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   )
