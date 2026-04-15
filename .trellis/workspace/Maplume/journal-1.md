@@ -289,3 +289,55 @@ Built the initial Python LangGraph/LangChain deep research backend scaffold with
 ### Next Steps
 
 - None - task complete
+
+
+## Session 7: 研究报告输出章节化与本地化
+
+**Date**: 2026-04-15
+**Task**: 研究报告输出章节化与本地化
+**Branch**: `master`
+
+### Summary
+
+将 deep research 默认报告改成任务章节式输出，并按 output_language 本地化固定章节标题。
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Report structure | Replaced panel-style sections with localized summary, task-driven chapters, optional risks, conclusion, and references. |
+| Localization | Added `output_language`-aware fixed labels for report title and section headings in synthesis and report contract layers. |
+| Review and audit | Updated review rebuild and citation audit paths to accept localized and legacy summary/reference headings. |
+| Code-spec | Updated backend runtime spec with executable contracts for task-chapter synthesis and localized report labels. |
+
+**Validation**:
+- `uv run ruff check app tests`
+- `python3 -m compileall app tests`
+- `uv run pytest` (`69 passed`)
+
+**Key Files**:
+- `app/services/synthesis.py`
+- `app/services/report_contract.py`
+- `app/graph/nodes/synthesize.py`
+- `app/graph/nodes/review.py`
+- `app/graph/nodes/audit.py`
+- `.trellis/spec/backend/research-agent-runtime.md`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0d5ff0d` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
