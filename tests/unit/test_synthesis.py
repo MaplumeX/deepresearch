@@ -137,6 +137,7 @@ class SynthesisServiceTest(unittest.TestCase):
         payload = _build_compact_payload(
             question="How should we evaluate deep research coverage?",
             tasks=[{"task_id": "task-1", "title": "Coverage", "question": "Evaluate coverage"}],
+            coverage_requirements=[],
             findings=[
                 {
                     "task_id": "task-1",
@@ -239,6 +240,217 @@ class SynthesisServiceTest(unittest.TestCase):
         self.assertIn("## Summary", report.markdown)
         self.assertIn("## Topic", report.markdown)
         self.assertIn("## Conclusion", report.markdown)
+
+    def test_fallback_synthesis_prefers_coverage_requirement_sections_when_available(self) -> None:
+        report = synthesize_report(
+            question="How should we evaluate deep research coverage?",
+            tasks=[
+                {
+                    "task_id": "task-1",
+                    "title": "Assess topic coverage",
+                    "coverage_tags": ["scope", "definitions"],
+                },
+                {
+                    "task_id": "task-2",
+                    "title": "Collect recent evidence",
+                    "coverage_tags": ["recent", "examples"],
+                },
+                {
+                    "task_id": "task-3",
+                    "title": "Analyze tradeoffs",
+                    "coverage_tags": ["risks", "tradeoffs"],
+                },
+            ],
+            findings=[
+                {
+                    "task_id": "task-1",
+                    "claim": "Deep research needs explicit scope boundaries.",
+                    "snippet": "Deep research needs explicit scope boundaries.",
+                    "source_id": "Sscope",
+                    "evidence_type": "definition",
+                    "confidence": 0.9,
+                    "relevance_score": 0.8,
+                },
+                {
+                    "task_id": "task-2",
+                    "claim": "A recent benchmark improved citation precision by 18 percent.",
+                    "snippet": "A recent benchmark improved citation precision by 18 percent.",
+                    "source_id": "Srecent",
+                    "evidence_type": "example",
+                    "confidence": 0.8,
+                    "relevance_score": 0.7,
+                },
+                {
+                    "task_id": "task-3",
+                    "claim": "Higher coverage usually increases latency and cost.",
+                    "snippet": "Higher coverage usually increases latency and cost.",
+                    "source_id": "Srisk",
+                    "evidence_type": "comparison",
+                    "confidence": 0.8,
+                    "relevance_score": 0.7,
+                },
+            ],
+            sources={
+                "Sscope": {
+                    "title": "Scope",
+                    "url": "https://example.com/scope",
+                    "content": "Deep research needs explicit scope boundaries.",
+                    "providers": ["tavily"],
+                    "acquisition_method": "http_fetch",
+                    "fetched_at": "2026-04-14T08:00:00+00:00",
+                },
+                "Srecent": {
+                    "title": "Recent",
+                    "url": "https://example.com/recent",
+                    "content": "A recent benchmark improved citation precision by 18 percent.",
+                    "providers": ["tavily"],
+                    "acquisition_method": "http_fetch",
+                    "fetched_at": "2026-04-14T08:00:00+00:00",
+                },
+                "Srisk": {
+                    "title": "Tradeoff",
+                    "url": "https://example.com/tradeoff",
+                    "content": "Higher coverage usually increases latency and cost.",
+                    "providers": ["tavily"],
+                    "acquisition_method": "http_fetch",
+                    "fetched_at": "2026-04-14T08:00:00+00:00",
+                },
+            },
+            settings=self.settings,
+            coverage_requirements=[
+                {
+                    "requirement_id": "scope-terminology",
+                    "title": "Scope and terminology",
+                    "description": "Clarify scope and key terms.",
+                    "coverage_tags": ["scope", "definitions"],
+                },
+                {
+                    "requirement_id": "recent-evidence",
+                    "title": "Recent evidence",
+                    "description": "Ground the answer in recent evidence and examples.",
+                    "coverage_tags": ["recent", "examples"],
+                },
+                {
+                    "requirement_id": "risks-tradeoffs",
+                    "title": "Risks and tradeoffs",
+                    "description": "Explain risks and tradeoffs.",
+                    "coverage_tags": ["risks", "tradeoffs"],
+                },
+            ],
+            memory=None,
+            output_language="en",
+        )
+
+        headings = [section.heading for section in report.sections]
+        self.assertIn("Scope and Terminology", headings)
+        self.assertIn("Recent Evidence and Examples", headings)
+        self.assertIn("Risks and Limitations", headings)
+        self.assertNotIn("Topic coverage", headings)
+
+    def test_fallback_synthesis_localizes_default_coverage_requirement_headings_for_chinese(self) -> None:
+        report = synthesize_report(
+            question="请继续分析这个问题",
+            tasks=[
+                {
+                    "task_id": "task-1",
+                    "title": "评估范围",
+                    "coverage_tags": ["scope", "definitions"],
+                },
+                {
+                    "task_id": "task-2",
+                    "title": "收集近期证据",
+                    "coverage_tags": ["recent", "examples"],
+                },
+                {
+                    "task_id": "task-3",
+                    "title": "分析权衡",
+                    "coverage_tags": ["risks", "tradeoffs"],
+                },
+            ],
+            findings=[
+                {
+                    "task_id": "task-1",
+                    "claim": "需要先明确研究边界。",
+                    "snippet": "需要先明确研究边界。",
+                    "source_id": "Sscope001",
+                    "evidence_type": "definition",
+                    "confidence": 0.8,
+                    "relevance_score": 0.7,
+                },
+                {
+                    "task_id": "task-2",
+                    "claim": "近期案例显示引用准确率有所提升。",
+                    "snippet": "近期案例显示引用准确率有所提升。",
+                    "source_id": "Srecent001",
+                    "evidence_type": "example",
+                    "confidence": 0.8,
+                    "relevance_score": 0.7,
+                },
+                {
+                    "task_id": "task-3",
+                    "claim": "更高覆盖率通常意味着更高时延。",
+                    "snippet": "更高覆盖率通常意味着更高时延。",
+                    "source_id": "Srisk001",
+                    "evidence_type": "risk",
+                    "confidence": 0.7,
+                    "relevance_score": 0.6,
+                },
+            ],
+            sources={
+                "Sscope001": {
+                    "title": "范围来源",
+                    "url": "https://example.com/scope",
+                    "content": "需要先明确研究边界。",
+                    "providers": ["tavily"],
+                    "acquisition_method": "http_fetch",
+                    "fetched_at": "2026-04-14T08:00:00+00:00",
+                },
+                "Srecent001": {
+                    "title": "近期来源",
+                    "url": "https://example.com/recent",
+                    "content": "近期案例显示引用准确率有所提升。",
+                    "providers": ["tavily"],
+                    "acquisition_method": "http_fetch",
+                    "fetched_at": "2026-04-14T08:00:00+00:00",
+                },
+                "Srisk001": {
+                    "title": "风险来源",
+                    "url": "https://example.com/risk",
+                    "content": "更高覆盖率通常意味着更高时延。",
+                    "providers": ["tavily"],
+                    "acquisition_method": "http_fetch",
+                    "fetched_at": "2026-04-14T08:00:00+00:00",
+                },
+            },
+            settings=self.settings,
+            coverage_requirements=[
+                {
+                    "requirement_id": "scope-terminology",
+                    "title": "Scope and terminology",
+                    "description": "Clarify scope and terms.",
+                    "coverage_tags": ["scope", "definitions"],
+                },
+                {
+                    "requirement_id": "recent-evidence",
+                    "title": "Recent evidence",
+                    "description": "Ground the answer in recent evidence and examples.",
+                    "coverage_tags": ["recent", "examples"],
+                },
+                {
+                    "requirement_id": "risks-tradeoffs",
+                    "title": "Risks and tradeoffs",
+                    "description": "Explain risks and tradeoffs.",
+                    "coverage_tags": ["risks", "tradeoffs"],
+                },
+            ],
+            memory=None,
+            output_language="zh-CN",
+        )
+
+        headings = [section.heading for section in report.sections]
+        self.assertIn("范围与术语", headings)
+        self.assertIn("近期证据与案例", headings)
+        self.assertIn("风险与局限", headings)
 
     def test_normalize_task_heading_strips_action_prefixes(self) -> None:
         self.assertEqual(

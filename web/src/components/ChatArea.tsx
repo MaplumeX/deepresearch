@@ -6,9 +6,10 @@ import { Bot, X } from 'lucide-react'
 import { ResearchProgressCard } from './ResearchProgressCard'
 import { CiteBadge } from './CiteBadge'
 import { cn } from '@/lib/utils'
+import { buildProgressViewModel, formatProgressNarrative, getProgressPayload } from '@/lib/research-progress'
 import { getStructuredReport } from '@/lib/research-result'
 import { useChatStore } from '@/store/useChatStore'
-import type { SourceCard } from '@/types/research'
+import type { ResearchRunHistoryEvent, ResearchProgressPayload, RunDetail, SourceCard } from '@/types/research'
 
 function buildCitationIndexMap(sourceCards?: SourceCard[], content?: string): Map<string, number> {
   const map = new Map<string, number>()
@@ -115,6 +116,41 @@ function MarkdownContent({ content, sourceCards }: { content: string; sourceCard
   )
 }
 
+function ResearchRunNarrative({
+  run,
+  liveProgress = null,
+  liveEvents = [],
+}: {
+  run: RunDetail
+  liveProgress?: ResearchProgressPayload | null
+  liveEvents?: ResearchRunHistoryEvent[]
+}) {
+  const progress = getProgressPayload(run, liveProgress, liveEvents)
+  const model = buildProgressViewModel(run, { liveProgress, liveEvents })
+  const narrative = formatProgressNarrative(progress)
+  const leadGap = model.gapHighlights[0] ?? null
+
+  if (!narrative && !leadGap) {
+    return null
+  }
+
+  return (
+    <div className="rounded-xl border border-border/60 bg-muted/25 px-4 py-3">
+      {narrative && (
+        <p className="text-sm leading-6 text-foreground">
+          {narrative}
+        </p>
+      )}
+      {leadGap && (
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+          当前最关键缺口：{leadGap.title}
+          {leadGap.meta ? ` · ${leadGap.meta}` : ''}
+        </p>
+      )}
+    </div>
+  )
+}
+
 export function ChatArea() {
   const {
     activeConversation,
@@ -198,7 +234,10 @@ export function ChatArea() {
                   : "bg-transparent rounded-2xl leading-relaxed text-foreground"
               )}>
                 {msg.role === 'assistant' && currentMode === 'research' && researchRun && (
-                  <ResearchProgressCard run={researchRun} />
+                  <>
+                    <ResearchRunNarrative run={researchRun} />
+                    <ResearchProgressCard run={researchRun} />
+                  </>
                 )}
 
                 {msg.role === 'assistant' && !msg.content ? null : (
@@ -257,6 +296,12 @@ export function ChatArea() {
             </div>
 
             <div className="flex max-w-[85%] flex-col gap-3 text-[15px] text-foreground">
+              <ResearchRunNarrative
+                run={liveRun}
+                liveProgress={streamingProgress}
+                liveEvents={streamingRunEvents}
+              />
+
               <ResearchProgressCard
                 run={liveRun}
                 liveProgress={streamingProgress}

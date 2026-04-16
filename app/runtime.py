@@ -22,6 +22,7 @@ def build_initial_state(
         "request": request_payload,
         "memory": ConversationMemoryPayload.model_validate(memory or {}).model_dump(),
         "tasks": [],
+        "coverage_requirements": [],
         "raw_findings": [],
         "raw_source_batches": [],
         "task_outcomes": [],

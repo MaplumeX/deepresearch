@@ -36,6 +36,7 @@ def synthesize_report_node(state: dict, config: RunnableConfig | None = None) ->
     report = synthesize_report(
         question=state["request"]["question"],
         tasks=tasks,
+        coverage_requirements=state.get("coverage_requirements", []),
         findings=state.get("findings", []),
         sources=state.get("sources", {}),
         settings=settings,

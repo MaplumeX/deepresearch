@@ -6,12 +6,14 @@ from unittest.mock import patch
 
 if importlib.util.find_spec("pydantic") is not None:
     from app.config import Settings
+    from app.domain.models import CoverageRequirement, ResearchPlan, ResearchTask
     from app.graph.nodes.planner import plan_research
-    from app.domain.models import ResearchTask
     from app.services.planning import plan_research_tasks
 else:
     Settings = None
+    CoverageRequirement = None
     plan_research = None
+    ResearchPlan = None
     ResearchTask = None
     plan_research_tasks = None
 
@@ -40,17 +42,19 @@ class PlanningServiceTest(unittest.TestCase):
         )
 
     def test_fallback_planner_limits_task_count(self) -> None:
-        tasks = plan_research_tasks(
+        plan = plan_research_tasks(
             question="How do I build a deep research agent?",
             gaps=[],
             max_tasks=2,
             settings=self.settings,
         )
-        self.assertEqual(len(tasks), 2)
-        self.assertEqual(tasks[0].task_id, "task-1")
+        self.assertEqual(len(plan.tasks), 2)
+        self.assertEqual(plan.tasks[0].task_id, "task-1")
+        self.assertEqual(len(plan.coverage_requirements), 3)
+        self.assertEqual(plan.coverage_requirements[0].requirement_id, "scope-terminology")
 
     def test_gaps_are_translated_to_follow_up_tasks(self) -> None:
-        tasks = plan_research_tasks(
+        plan = plan_research_tasks(
             question="How do I build a deep research agent?",
             gaps=[
                 {
@@ -65,11 +69,12 @@ class PlanningServiceTest(unittest.TestCase):
             max_tasks=3,
             settings=self.settings,
         )
-        self.assertEqual(tasks[0].title, "Recover search coverage for primary sources")
-        self.assertIn("Retry hint:", tasks[0].question)
+        self.assertEqual(plan.tasks[0].title, "Recover search coverage for primary sources")
+        self.assertIn("Retry hint:", plan.tasks[0].question)
+        self.assertIn("evidence", plan.tasks[0].coverage_tags)
 
     def test_fallback_planner_includes_memory_context_in_task_question(self) -> None:
-        tasks = plan_research_tasks(
+        plan = plan_research_tasks(
             question="Can you continue this?",
             gaps=[],
             max_tasks=1,
@@ -89,18 +94,60 @@ class PlanningServiceTest(unittest.TestCase):
                 "open_questions": [],
             },
         )
-        self.assertIn("Conversation context:", tasks[0].question)
+        self.assertIn("Conversation context:", plan.tasks[0].question)
+
+    def test_planner_uses_llm_coverage_requirements_when_available(self) -> None:
+        llm_plan = ResearchPlan(
+            tasks=[
+                ResearchTask(
+                    task_id="task-1",
+                    title="Recent evidence",
+                    question="Q",
+                    coverage_tags=["recent", "evidence"],
+                )
+            ],
+            coverage_requirements=[
+                CoverageRequirement(
+                    requirement_id="recent-evidence",
+                    title="Recent evidence",
+                    description="Collect current support.",
+                    coverage_tags=["recent", "examples"],
+                )
+            ],
+        )
+
+        with patch("app.services.planning._maybe_plan_with_llm", return_value=llm_plan):
+            plan = plan_research_tasks(
+                question="How do I build a deep research agent?",
+                gaps=[],
+                max_tasks=2,
+                settings=self.settings,
+            )
+
+        self.assertEqual(plan.coverage_requirements[0].requirement_id, "recent-evidence")
+        self.assertEqual(plan.coverage_requirements[0].coverage_tags, ["recent", "examples"])
+        self.assertEqual(plan.tasks[0].coverage_tags, ["recent", "evidence"])
 
     def test_planner_node_assigns_iteration_scoped_task_ids(self) -> None:
         with patch("app.graph.nodes.planner.get_settings", return_value=self.settings), patch(
             "app.graph.nodes.planner.plan_research_tasks",
-            return_value=[
-                ResearchTask(
-                    task_id="task-1",
-                    title="Recover search coverage",
-                    question="Q",
-                )
-            ],
+            return_value=ResearchPlan(
+                tasks=[
+                    ResearchTask(
+                        task_id="task-1",
+                        title="Recover search coverage",
+                        question="Q",
+                    )
+                ],
+                coverage_requirements=[
+                    CoverageRequirement(
+                        requirement_id="recent-evidence",
+                        title="Recent evidence",
+                        description="Collect current support.",
+                        coverage_tags=["recent", "evidence"],
+                    )
+                ],
+            ),
         ):
             result = plan_research(
                 {
@@ -118,6 +165,7 @@ class PlanningServiceTest(unittest.TestCase):
 
         self.assertEqual(result["iteration_count"], 2)
         self.assertEqual(result["tasks"][0]["task_id"], "iter-2-task-1")
+        self.assertEqual(result["coverage_requirements"][0]["requirement_id"], "recent-evidence")
 
 
 if __name__ == "__main__":

@@ -20,7 +20,14 @@ from app.domain.models import (
 )
 from app.run_store import ResearchRunStore, build_conversation_title
 from app.runtime import resume_research, run_research
-from app.services.research_progress import build_counts, build_progress_payload
+from app.services.research_progress import (
+    build_counts,
+    build_gap_progress,
+    build_progress_action,
+    build_progress_payload,
+    build_retry_task_progress,
+    count_completed_tasks,
+)
 from app.services.conversation_memory import (
     DEFAULT_MEMORY_WINDOW,
     build_memory_context,
@@ -431,16 +438,34 @@ class ResearchRunManager:
         review_kind: str | None = None,
     ) -> ResearchProgressPayload:
         result = run.result if isinstance(run.result, dict) else {}
+        progress_action = None
+        if review_required:
+            progress_action = build_progress_action(
+                "review",
+                label="等待人工复核",
+                detail="系统已暂停自动推进，等待人工确认或编辑报告后再继续。",
+            )
         return build_progress_payload(
             phase,
             iteration=result.get("iteration_count") if isinstance(result.get("iteration_count"), int) else None,
             max_iterations=run.request.max_iterations,
             counts=build_counts(
                 planned_tasks=self._safe_size(result.get("tasks")),
-                completed_tasks=self._safe_size(result.get("task_outcomes")),
+                completed_tasks=(
+                    count_completed_tasks(result.get("task_outcomes", []))
+                    if isinstance(result.get("task_outcomes"), list)
+                    else None
+                ),
                 kept_sources=self._safe_size(result.get("sources")),
                 evidence_count=self._safe_size(result.get("findings")),
                 warnings=len(run.warnings) or None,
+            ),
+            action=progress_action,
+            gaps=build_gap_progress(result.get("gaps", [])) if isinstance(result.get("gaps"), list) else None,
+            retry_tasks=(
+                build_retry_task_progress(result.get("tasks", []), result.get("gaps", []))
+                if isinstance(result.get("tasks"), list) and isinstance(result.get("gaps"), list)
+                else None
             ),
             review_required=review_required,
             review_kind=review_kind,

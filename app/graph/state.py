@@ -8,6 +8,7 @@ class GraphState(TypedDict, total=False):
     request: dict
     memory: dict
     tasks: list[dict]
+    coverage_requirements: list[dict]
     raw_findings: Annotated[list[dict], operator.add]
     raw_source_batches: Annotated[list[dict], operator.add]
     task_outcomes: Annotated[list[dict], operator.add]

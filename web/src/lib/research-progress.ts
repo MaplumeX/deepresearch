@@ -1,7 +1,9 @@
 import type {
   ResearchProgressCounts,
+  ResearchProgressGap,
   ResearchProgressPayload,
   ResearchProgressPhase,
+  ResearchRetryTaskProgress,
   ResearchRunHistoryEvent,
   ResearchWorkerStep,
   RunDetail,
@@ -22,15 +24,32 @@ export type ResearchMetric = {
   value: string
 }
 
+export type ResearchGapHighlight = {
+  key: string
+  title: string
+  meta: string
+  tone: 'warning' | 'danger'
+}
+
+export type ResearchRetryHighlight = {
+  key: string
+  title: string
+  detail: string
+}
+
 export type ResearchProgressViewModel = {
   phase: ResearchProgressPhase
   phaseLabel: string
   tone: ProgressTone
   statusLabel: string
   summary: string | null
+  actionLabel: string | null
+  actionDetail: string | null
   taskLine: string | null
   iterationLine: string | null
   metrics: ResearchMetric[]
+  gapHighlights: ResearchGapHighlight[]
+  retryHighlights: ResearchRetryHighlight[]
   steps: ResearchProgressStep[]
   events: ResearchRunHistoryEvent[]
 }
@@ -137,10 +156,14 @@ export function buildProgressViewModel(
     phaseLabel: PHASE_LABELS[progress.phase] ?? progress.phase_label,
     tone: getTone(progress.phase),
     statusLabel: STATUS_LABELS[run.status],
-    summary: latestEvent?.message ?? defaultSummary(progress.phase),
+    summary: progress.action?.detail ?? latestEvent?.message ?? defaultSummary(progress.phase),
+    actionLabel: progress.action?.label ?? null,
+    actionDetail: progress.action?.detail ?? null,
     taskLine: buildTaskLine(progress),
     iterationLine: buildIterationLine(progress),
     metrics: buildMetrics(progress.counts),
+    gapHighlights: buildGapHighlights(progress.gaps),
+    retryHighlights: buildRetryHighlights(progress.retry_tasks),
     steps: buildSteps(progress.phase),
     events,
   }
@@ -156,6 +179,50 @@ export function formatEventTime(timestamp: string): string {
     minute: '2-digit',
     second: '2-digit',
   })
+}
+
+export function formatProgressNarrative(progress: ResearchProgressPayload): string | null {
+  const leadGap = progress.gaps[0]
+  if (progress.action?.kind === 'targeted_retry') {
+    const retryTitles = progress.retry_tasks.slice(0, 2).map((task) => task.title)
+    if (retryTitles.length > 0) {
+      return `系统正在优先局部重试：${retryTitles.join('、')}${leadGap ? `。当前焦点是“${leadGap.title}”。` : '。'}`
+    }
+    if (leadGap) {
+      return `系统正在优先局部重试，先补“${leadGap.title}”。`
+    }
+  }
+  if (progress.action?.kind === 'replan') {
+    if (leadGap) {
+      return `当前缺口无法只靠局部重试修复，准备围绕“${leadGap.title}”进入下一轮规划。`
+    }
+    return progress.action.detail ?? '当前证据不足，准备进入下一轮规划。'
+  }
+  if (progress.action?.kind === 'review') {
+    return progress.action.detail ?? '系统已暂停自动推进，等待人工复核。'
+  }
+  if (progress.task) {
+    return `当前正在处理任务“${progress.task.title}”。`
+  }
+  return null
+}
+
+export function formatHistoryEventLabel(event: ResearchRunHistoryEvent): string {
+  if (event.progress) {
+    const progress = event.progress
+    if (progress.action?.kind === 'targeted_retry' && progress.retry_tasks.length > 0) {
+      return `优先局部重试：${progress.retry_tasks.slice(0, 2).map((task) => task.title).join('、')}`
+    }
+    if (progress.action?.kind === 'replan') {
+      return progress.gaps[0]
+        ? `进入下一轮规划：${progress.gaps[0].title}`
+        : (progress.action.detail ?? progress.action.label)
+    }
+    if (progress.action?.kind === 'review') {
+      return progress.action.detail ?? progress.action.label
+    }
+  }
+  return event.message || event.progress?.phase_label || event.event_type
 }
 
 function getLatestHistoryEvent(
@@ -185,6 +252,15 @@ function fallbackProgress(
     max_iterations: maxIterations,
     task: null,
     counts: emptyCounts(),
+    action: status === 'interrupted'
+      ? {
+          kind: 'review',
+          label: '等待人工复核',
+          detail: '系统已暂停自动推进，等待人工确认或编辑报告后再继续。',
+        }
+      : null,
+    gaps: [],
+    retry_tasks: [],
     review: {
       required: status === 'interrupted',
       kind: status === 'interrupted' ? 'human_review' : null,
@@ -228,6 +304,32 @@ function buildMetrics(counts: ResearchProgressCounts): ResearchMetric[] {
   pushMetric(metrics, '证据', counts.evidence_count)
   pushMetric(metrics, '警告', counts.warnings)
   return metrics
+}
+
+function buildGapHighlights(gaps: ResearchProgressGap[]): ResearchGapHighlight[] {
+  return gaps.map((gap) => ({
+    key: `${gap.task_id}-${gap.title}`,
+    title: gap.title,
+    meta: [gapScopeLabel(gap), gapSeverityLabel(gap), gap.retry_action ? retryActionLabel(gap.retry_action) : null]
+      .filter(Boolean)
+      .join(' · '),
+    tone: gap.severity === 'high' ? 'danger' : 'warning',
+  }))
+}
+
+function buildRetryHighlights(retryTasks: ResearchRetryTaskProgress[]): ResearchRetryHighlight[] {
+  return retryTasks.map((task) => ({
+    key: task.task_id,
+    title: task.title,
+    detail: [
+      task.retry_action ? retryActionLabel(task.retry_action) : '继续执行',
+      `已重试 ${task.retry_count} 次`,
+      task.query_budget != null ? `查询预算 ${task.query_budget}` : null,
+      task.fetch_budget != null ? `抓取预算 ${task.fetch_budget}` : null,
+    ]
+      .filter(Boolean)
+      .join(' · '),
+  }))
 }
 
 function pushMetric(
@@ -327,5 +429,45 @@ function workerStepLabel(step: ResearchWorkerStep): string {
       return '提取评分'
     case 'emit_results':
       return '输出结果'
+  }
+}
+
+function gapScopeLabel(gap: ResearchProgressGap): string {
+  if (gap.scope === 'global') {
+    return '全局覆盖'
+  }
+  switch (gap.gap_type) {
+    case 'retrieval_failure':
+      return '检索缺口'
+    case 'low_source_diversity':
+      return '来源不足'
+    case 'coverage_gap':
+      return '覆盖缺口'
+    case 'missing_evidence':
+      return '证据缺失'
+    case 'weak_evidence':
+      return '证据偏弱'
+  }
+}
+
+function gapSeverityLabel(gap: ResearchProgressGap): string {
+  switch (gap.severity) {
+    case 'high':
+      return '高优先级'
+    case 'medium':
+      return '中优先级'
+    case 'low':
+      return '低优先级'
+  }
+}
+
+function retryActionLabel(action: NonNullable<ResearchProgressGap['retry_action']>): string {
+  switch (action) {
+    case 'expand_fetch':
+      return '扩抓取'
+    case 'expand_queries':
+      return '扩查询'
+    case 'replan':
+      return '重规划'
   }
 }

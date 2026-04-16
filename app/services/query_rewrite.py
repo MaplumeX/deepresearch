@@ -1,21 +1,25 @@
 from __future__ import annotations
 
 import re
-from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from app.config import Settings, get_settings
-from app.domain.models import ResearchRequest, ResearchTask
+from app.domain.models import QueryIntent, ResearchQuery, ResearchRequest, ResearchTask
 from app.services.llm import build_structured_chat_model, can_use_llm
 
 
 _QUERY_LIMIT = 6
 _MIN_QUERY_COUNT = 3
 _CJK_PATTERN = re.compile(r"[\u4e00-\u9fff]")
-
-
-QueryIntent = Literal["baseline", "official", "recent", "example", "risk", "comparison"]
+_INTENT_PRIORITY: dict[QueryIntent, int] = {
+    "official": 0,
+    "recent": 1,
+    "baseline": 2,
+    "example": 3,
+    "risk": 4,
+    "comparison": 5,
+}
 
 
 class QueryRewriteDraft(BaseModel):
@@ -31,7 +35,7 @@ def rewrite_queries(
     task: ResearchTask,
     request: ResearchRequest,
     settings: Settings | None = None,
-) -> list[str]:
+) -> list[ResearchQuery]:
     effective_settings = settings or get_settings()
     fallback_queries = _rewrite_queries_fallback(task, request)
     planned = _maybe_rewrite_queries_with_llm(task, request, effective_settings)
@@ -40,7 +44,7 @@ def rewrite_queries(
     return _finalize_queries(planned, fallback_queries)
 
 
-def _rewrite_queries_fallback(task: ResearchTask, request: ResearchRequest) -> list[str]:
+def _rewrite_queries_fallback(task: ResearchTask, request: ResearchRequest) -> list[ResearchQuery]:
     base_question = _normalize_space(task.question)
     full_question = _normalize_space(request.question)
     combined = _normalize_space(f"{request.question} {task.title}")
@@ -48,16 +52,16 @@ def _rewrite_queries_fallback(task: ResearchTask, request: ResearchRequest) -> l
     localized_terms = _intent_terms(request)
 
     candidates = [
-        base_question,
-        f"{base_question} {localized_terms['official']}",
-        f"{base_question} {localized_terms['recent']}",
-        f"{base_question} {localized_terms['example']}",
-        f"{base_question} {localized_terms['risk']}",
-        f"{full_question} {localized_terms['comparison']}",
-        combined,
+        _query_candidate(base_question, "baseline"),
+        _query_candidate(f"{base_question} {localized_terms['official']}", "official"),
+        _query_candidate(f"{base_question} {localized_terms['recent']}", "recent"),
+        _query_candidate(f"{base_question} {localized_terms['example']}", "example"),
+        _query_candidate(f"{base_question} {localized_terms['risk']}", "risk"),
+        _query_candidate(f"{full_question} {localized_terms['comparison']}", "comparison"),
+        _query_candidate(combined, "baseline", priority=6),
     ]
     if scope:
-        candidates.append(f"{base_question} {scope}")
+        candidates.append(_query_candidate(f"{base_question} {scope}", "baseline", priority=7))
 
     return _dedupe_queries(candidates)[:_QUERY_LIMIT]
 
@@ -66,7 +70,7 @@ def _maybe_rewrite_queries_with_llm(
     task: ResearchTask,
     request: ResearchRequest,
     settings: Settings,
-) -> list[str] | None:
+) -> list[ResearchQuery] | None:
     if not settings.enable_llm_planning or not can_use_llm(settings):
         return None
 
@@ -112,31 +116,51 @@ def _maybe_rewrite_queries_with_llm(
     except Exception:
         return None
 
-    return [item.query for item in response.queries]
+    return [
+        ResearchQuery(
+            query=item.query,
+            intent=item.intent,
+            priority=_INTENT_PRIORITY[item.intent],
+        )
+        for item in response.queries
+    ]
 
 
-def _finalize_queries(planned: list[str], fallback_queries: list[str]) -> list[str]:
+def _finalize_queries(
+    planned: list[ResearchQuery],
+    fallback_queries: list[ResearchQuery],
+) -> list[ResearchQuery]:
     queries = _dedupe_queries(planned)[:_QUERY_LIMIT]
     if len(queries) >= _MIN_QUERY_COUNT:
         return queries
 
-    combined = queries + [item for item in fallback_queries if item.casefold() not in {query.casefold() for query in queries}]
+    seen = {query.query.casefold() for query in queries}
+    combined = queries + [item for item in fallback_queries if item.query.casefold() not in seen]
     return combined[:_QUERY_LIMIT]
 
 
-def _dedupe_queries(candidates: list[str]) -> list[str]:
-    queries: list[str] = []
+def _dedupe_queries(candidates: list[ResearchQuery]) -> list[ResearchQuery]:
+    queries: list[ResearchQuery] = []
     seen: set[str] = set()
     for candidate in candidates:
-        normalized = _normalize_space(candidate)
+        normalized = _normalize_space(candidate.query)
         if not normalized:
             continue
         dedupe_key = normalized.casefold()
         if dedupe_key in seen:
             continue
         seen.add(dedupe_key)
-        queries.append(normalized)
+        queries.append(candidate.model_copy(update={"query": normalized}))
+    queries.sort(key=lambda item: (item.priority, item.query.casefold()))
     return queries
+
+
+def _query_candidate(query: str, intent: QueryIntent, *, priority: int | None = None) -> ResearchQuery:
+    return ResearchQuery(
+        query=query,
+        intent=intent,
+        priority=_INTENT_PRIORITY[intent] if priority is None else priority,
+    )
 
 
 def _intent_terms(request: ResearchRequest) -> dict[str, str]:

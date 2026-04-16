@@ -22,18 +22,38 @@ class ResearchTask(BaseModel):
     title: str
     report_heading: str | None = None
     question: str
+    coverage_tags: list[str] = Field(default_factory=list)
+    query_budget: int = Field(default=3, ge=1, le=6)
+    fetch_budget: int = Field(default=4, ge=1, le=10)
+    retry_count: int = Field(default=0, ge=0, le=5)
     status: Literal["pending", "running", "done", "failed"] = "pending"
+
+
+class CoverageRequirement(BaseModel):
+    requirement_id: str
+    title: str
+    description: str
+    coverage_tags: list[str] = Field(default_factory=list)
 
 
 class ResearchPlan(BaseModel):
     tasks: list[ResearchTask]
+    coverage_requirements: list[CoverageRequirement] = Field(default_factory=list)
 
 
+QueryIntent = Literal["baseline", "official", "recent", "example", "risk", "comparison"]
 ContentFormat = Literal["html", "text", "markdown"]
 AcquisitionMethod = Literal["provider_raw_content", "http_fetch", "jina_reader", "firecrawl_scrape", "search_snippet"]
 EvidenceType = Literal["definition", "fact", "statistic", "example", "comparison", "risk", "limitation", "trend"]
 SourceRole = Literal["official", "primary", "secondary", "commentary", "unknown"]
 GapType = Literal["missing_evidence", "weak_evidence", "low_source_diversity", "retrieval_failure", "coverage_gap"]
+RetryAction = Literal["expand_queries", "expand_fetch", "replan"]
+
+
+class ResearchQuery(BaseModel):
+    query: str = Field(min_length=1)
+    intent: QueryIntent
+    priority: int = Field(default=0, ge=0, le=9)
 
 
 class SearchHit(BaseModel):
@@ -165,12 +185,16 @@ class ResearchTaskOutcome(BaseModel):
     title: str
     quality_status: TaskQualityStatus
     query_count: int = Field(default=0, ge=0)
+    total_query_count: int = Field(default=0, ge=0)
     search_hit_count: int = Field(default=0, ge=0)
     acquired_content_count: int = Field(default=0, ge=0)
     kept_source_count: int = Field(default=0, ge=0)
     evidence_count: int = Field(default=0, ge=0)
     host_count: int = Field(default=0, ge=0)
     failure_reasons: list[str] = Field(default_factory=list)
+    executed_queries: list[str] = Field(default_factory=list)
+    used_urls: list[str] = Field(default_factory=list)
+    stage_status: dict[str, str] = Field(default_factory=dict)
 
 
 class ResearchGap(BaseModel):
@@ -180,6 +204,7 @@ class ResearchGap(BaseModel):
     reason: str
     retry_hint: str
     severity: GapSeverity = "medium"
+    retry_action: RetryAction | None = None
 
 
 class QualityGateResult(BaseModel):
@@ -308,6 +333,34 @@ class ResearchTaskProgress(BaseModel):
     worker_step: ResearchWorkerStep | None = None
 
 
+ProgressActionKind = Literal["targeted_retry", "replan", "review"]
+ProgressGapScope = Literal["task", "global"]
+
+
+class ResearchProgressAction(BaseModel):
+    kind: ProgressActionKind
+    label: str
+    detail: str | None = None
+
+
+class ResearchProgressGap(BaseModel):
+    task_id: str
+    title: str
+    gap_type: GapType
+    severity: GapSeverity = "medium"
+    retry_action: RetryAction | None = None
+    scope: ProgressGapScope = "task"
+
+
+class ResearchRetryTaskProgress(BaseModel):
+    task_id: str
+    title: str
+    retry_action: RetryAction | None = None
+    retry_count: int = Field(default=0, ge=0)
+    query_budget: int | None = Field(default=None, ge=1)
+    fetch_budget: int | None = Field(default=None, ge=1)
+
+
 class ResearchReviewProgress(BaseModel):
     required: bool = False
     kind: Literal["human_review"] | None = None
@@ -320,6 +373,9 @@ class ResearchProgressPayload(BaseModel):
     max_iterations: int | None = Field(default=None, ge=1)
     task: ResearchTaskProgress | None = None
     counts: ResearchProgressCounts = Field(default_factory=ResearchProgressCounts)
+    action: ResearchProgressAction | None = None
+    gaps: list[ResearchProgressGap] = Field(default_factory=list)
+    retry_tasks: list[ResearchRetryTaskProgress] = Field(default_factory=list)
     review: ResearchReviewProgress = Field(default_factory=ResearchReviewProgress)
 
 

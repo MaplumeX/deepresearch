@@ -182,6 +182,31 @@ class ResearchRunStoreTest(unittest.TestCase):
                             "evidence_count": None,
                             "warnings": 0,
                         },
+                        "action": {
+                            "kind": "targeted_retry",
+                            "label": "优先局部重试",
+                            "detail": "先扩查询和抓取预算。",
+                        },
+                        "gaps": [
+                            {
+                                "task_id": "task-1",
+                                "title": "Strengthen evidence",
+                                "gap_type": "weak_evidence",
+                                "severity": "medium",
+                                "retry_action": "expand_fetch",
+                                "scope": "task",
+                            }
+                        ],
+                        "retry_tasks": [
+                            {
+                                "task_id": "task-1",
+                                "title": "Strengthen evidence",
+                                "retry_action": "expand_fetch",
+                                "retry_count": 1,
+                                "query_budget": 3,
+                                "fetch_budget": 6,
+                            }
+                        ],
                         "review": {
                             "required": False,
                             "kind": None,
@@ -197,6 +222,8 @@ class ResearchRunStoreTest(unittest.TestCase):
         self.assertIsNotNone(run)
         self.assertEqual(len(run.progress_events), 1)
         self.assertEqual(run.progress_events[0].message, "Planning research tasks.")
+        self.assertEqual(run.progress_events[0].progress.action.kind, "targeted_retry")
+        self.assertEqual(run.progress_events[0].progress.gaps[0].retry_action, "expand_fetch")
         self.assertIsNotNone(conversation)
         self.assertEqual(conversation.runs[0].progress_events[0].progress.phase, "planning")
 

@@ -1,7 +1,15 @@
 from __future__ import annotations
 
 from app.config import get_settings
-from app.domain.models import ConversationMemoryPayload, QualityGateResult, ResearchGap, ResearchRequest, ResearchTaskOutcome
+from app.domain.models import (
+    ConversationMemoryPayload,
+    CoverageRequirement,
+    QualityGateResult,
+    ResearchGap,
+    ResearchRequest,
+    ResearchTask,
+    ResearchTaskOutcome,
+)
 from app.services.budgets import normalize_request_payload
 
 
@@ -10,6 +18,14 @@ def ingest_request(state: dict) -> dict:
     request_payload = normalize_request_payload(state.get("request", {}), settings)
     request = ResearchRequest.model_validate(request_payload)
     memory = ConversationMemoryPayload.model_validate(state.get("memory", {}))
+    tasks = [
+        ResearchTask.model_validate(item).model_dump()
+        for item in state.get("tasks", [])
+    ]
+    coverage_requirements = [
+        CoverageRequirement.model_validate(item).model_dump()
+        for item in state.get("coverage_requirements", [])
+    ]
     task_outcomes = [
         ResearchTaskOutcome.model_validate(item).model_dump()
         for item in state.get("task_outcomes", [])
@@ -22,7 +38,8 @@ def ingest_request(state: dict) -> dict:
     return {
         "request": request.model_dump(),
         "memory": memory.model_dump(),
-        "tasks": state.get("tasks", []),
+        "tasks": tasks,
+        "coverage_requirements": coverage_requirements,
         "raw_findings": state.get("raw_findings", []),
         "raw_source_batches": state.get("raw_source_batches", []),
         "task_outcomes": task_outcomes,

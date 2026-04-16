@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import {
   buildProgressViewModel,
   formatEventTime,
+  formatHistoryEventLabel,
   getProgressPayload,
   PHASE_LABELS,
   PHASE_ORDER,
@@ -190,6 +191,79 @@ function ResearchMetrics({
   )
 }
 
+function ResearchInsightPanel({
+  label,
+  content,
+}: {
+  label: string
+  content: string
+}) {
+  return (
+    <div className="rounded-lg border border-border/60 bg-background/70 px-3 py-2">
+      <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground/80">
+        {label}
+      </div>
+      <div className="mt-1 text-sm leading-5 text-foreground">
+        {content}
+      </div>
+    </div>
+  )
+}
+
+function ResearchGapHighlights({
+  items,
+}: {
+  items: { key: string; title: string; meta: string; tone: 'warning' | 'danger' }[]
+}) {
+  if (items.length === 0) return null
+  return (
+    <div className="space-y-2">
+      <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground/80">
+        关键缺口
+      </div>
+      <div className="space-y-1.5">
+        {items.map((item) => (
+          <div
+            key={item.key}
+            className={cn(
+              'rounded-lg border px-3 py-2',
+              item.tone === 'danger'
+                ? 'border-destructive/20 bg-destructive/[0.04]'
+                : 'border-amber-500/20 bg-amber-500/[0.04]',
+            )}
+          >
+            <div className="text-sm font-medium text-foreground">{item.title}</div>
+            <div className="mt-1 text-xs text-muted-foreground">{item.meta}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function ResearchRetryHighlights({
+  items,
+}: {
+  items: { key: string; title: string; detail: string }[]
+}) {
+  if (items.length === 0) return null
+  return (
+    <div className="space-y-2">
+      <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground/80">
+        待重试任务
+      </div>
+      <div className="space-y-1.5">
+        {items.map((item) => (
+          <div key={item.key} className="rounded-lg border border-border/60 bg-background/70 px-3 py-2">
+            <div className="text-sm font-medium text-foreground">{item.title}</div>
+            <div className="mt-1 text-xs text-muted-foreground">{item.detail}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function ResearchEventLog({ events }: { events: ResearchRunHistoryEvent[] }) {
   if (events.length === 0) return null
   return (
@@ -203,7 +277,7 @@ function ResearchEventLog({ events }: { events: ResearchRunHistoryEvent[] }) {
             {formatEventTime(event.timestamp)}
           </span>
           <span className="line-clamp-2">
-            {event.message || event.progress?.phase_label || event.event_type}
+            {formatHistoryEventLabel(event)}
           </span>
         </div>
       ))}
@@ -287,6 +361,17 @@ export function ResearchProgressCard({
           {model.metrics.length > 0 && (
             <ResearchMetrics metrics={model.metrics} />
           )}
+
+          {model.actionLabel && model.summary && (
+            <ResearchInsightPanel
+              label={model.actionLabel}
+              content={model.summary}
+            />
+          )}
+
+          <ResearchGapHighlights items={model.gapHighlights} />
+
+          <ResearchRetryHighlights items={model.retryHighlights} />
 
           <ResearchEventLog events={model.events} />
         </div>

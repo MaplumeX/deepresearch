@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.config import Settings
-from app.domain.models import ResearchGap, ResearchPlan, ResearchTask
+from app.domain.models import CoverageRequirement, ResearchGap, ResearchPlan, ResearchTask
 from app.services.conversation_memory import build_contextual_brief, format_memory_for_prompt
 from app.services.llm import build_structured_chat_model, can_use_llm
 from app.services.research_quality import format_gaps_for_prompt, normalize_gaps, sort_gaps
@@ -54,6 +54,7 @@ def _build_fallback_plan(
                     f"Why this follow-up is needed: {gap.reason}\n"
                     f"Retry hint: {gap.retry_hint}"
                 ),
+                coverage_tags=_coverage_tags_for_gap(gap),
             )
         )
     return tasks
@@ -65,7 +66,7 @@ def _maybe_plan_with_llm(
     max_tasks: int,
     settings: Settings,
     memory: dict[str, Any] | None,
-) -> list[ResearchTask] | None:
+) -> ResearchPlan | None:
     if not settings.enable_llm_planning or not can_use_llm(settings):
         return None
 
@@ -83,7 +84,8 @@ def _maybe_plan_with_llm(
                 "Use conversation memory only for continuity, intent resolution, and terminology reuse. "
                 "Conversation memory is not verified evidence. "
                 "If memory conflicts with the new user request, prefer the new user request. "
-                "Return at most {max_tasks} focused tasks.",
+                "Return at most {max_tasks} focused tasks and a compact coverage rubric. "
+                "Coverage requirements should describe what a complete answer must cover, not execution steps.",
             ),
             (
                 "human",
@@ -112,7 +114,13 @@ def _maybe_plan_with_llm(
             "max_tasks": max_tasks,
         }
     )
-    return response.tasks[:max_tasks]
+    return ResearchPlan(
+        tasks=[
+            task.model_copy(update={"coverage_tags": _finalize_coverage_tags(task.coverage_tags)})
+            for task in response.tasks[:max_tasks]
+        ],
+        coverage_requirements=_finalize_coverage_requirements(response.coverage_requirements),
+    )
 
 
 def plan_research_tasks(
@@ -121,12 +129,15 @@ def plan_research_tasks(
     max_tasks: int,
     settings: Settings,
     memory: dict[str, Any] | None = None,
-) -> list[ResearchTask]:
+) -> ResearchPlan:
     normalized_gaps = normalize_gaps(list(gaps))
     planned = _maybe_plan_with_llm(question, normalized_gaps, max_tasks, settings, memory)
     if planned:
         return planned
-    return _build_fallback_plan(question, normalized_gaps, max_tasks, memory)
+    return ResearchPlan(
+        tasks=_build_fallback_plan(question, normalized_gaps, max_tasks, memory),
+        coverage_requirements=_build_default_coverage_requirements(),
+    )
 
 
 def _with_memory_context(question: str, memory: dict[str, Any] | None) -> str:
@@ -134,3 +145,84 @@ def _with_memory_context(question: str, memory: dict[str, Any] | None) -> str:
     if not context:
         return question
     return f"{question}\nConversation context:\n{context}"
+
+
+def _build_default_coverage_requirements() -> list[CoverageRequirement]:
+    return [
+        CoverageRequirement(
+            requirement_id="scope-terminology",
+            title="Scope and terminology",
+            description="Clarify what the question covers, key terms, and the decision context.",
+            coverage_tags=["scope", "definitions"],
+        ),
+        CoverageRequirement(
+            requirement_id="recent-evidence",
+            title="Recent evidence and concrete examples",
+            description="Ground the answer in recent, corroborated evidence and concrete examples or measurable data.",
+            coverage_tags=["recent", "evidence", "examples"],
+        ),
+        CoverageRequirement(
+            requirement_id="risks-tradeoffs",
+            title="Risks, tradeoffs, and implications",
+            description="Explain limitations, risks, tradeoffs, or downstream implications of the answer.",
+            coverage_tags=["risks", "tradeoffs"],
+        ),
+    ]
+
+
+def _coverage_tags_for_gap(gap: ResearchGap) -> list[str]:
+    title = gap.title.casefold()
+    tags: list[str] = []
+
+    if "scope" in title or "terminology" in title:
+        tags.extend(["scope", "definitions"])
+    if "recent" in title or "2025" in title or "2026" in title:
+        tags.extend(["recent", "evidence"])
+    if any(token in title for token in ("example", "case", "benchmark", "data")):
+        tags.extend(["examples", "evidence"])
+    if any(token in title for token in ("risk", "limitation", "tradeoff", "implication")):
+        tags.extend(["risks", "tradeoffs"])
+
+    if gap.gap_type in {"retrieval_failure", "missing_evidence", "weak_evidence", "low_source_diversity"}:
+        tags.append("evidence")
+    if gap.gap_type == "coverage_gap" and not tags:
+        tags.extend(["recent", "examples", "risks"])
+
+    return _finalize_coverage_tags(tags)
+
+
+def _finalize_coverage_tags(tags: list[str]) -> list[str]:
+    finalized: list[str] = []
+    seen: set[str] = set()
+    for tag in tags:
+        normalized = " ".join(str(tag).split()).strip().casefold()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        finalized.append(normalized)
+    if not finalized:
+        return ["evidence"]
+    return finalized
+
+
+def _finalize_coverage_requirements(
+    requirements: list[CoverageRequirement],
+) -> list[CoverageRequirement]:
+    finalized: list[CoverageRequirement] = []
+    seen: set[str] = set()
+    for requirement in requirements:
+        requirement_id = " ".join(requirement.requirement_id.split()).strip().casefold()
+        if not requirement_id or requirement_id in seen:
+            continue
+        seen.add(requirement_id)
+        finalized.append(
+            requirement.model_copy(
+                update={
+                    "requirement_id": requirement_id,
+                    "coverage_tags": _finalize_coverage_tags(requirement.coverage_tags),
+                }
+            )
+        )
+    if finalized:
+        return finalized
+    return _build_default_coverage_requirements()

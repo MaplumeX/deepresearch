@@ -3,8 +3,14 @@ from __future__ import annotations
 import unittest
 
 from app.config import Settings
-from app.domain.models import AcquiredContent, ResearchRequest, ResearchTask, SearchHit, SourceDocument
-from app.services.research_worker import build_task_evidence, filter_acquired_contents, rank_search_hits, rewrite_queries
+from app.domain.models import AcquiredContent, ResearchQuery, ResearchRequest, ResearchTask, SearchHit, SourceDocument
+from app.services.research_worker import (
+    build_task_evidence,
+    filter_acquired_contents,
+    rank_search_hits,
+    rewrite_queries,
+    select_queries_for_budget,
+)
 
 
 class ResearchWorkerServiceTest(unittest.TestCase):
@@ -42,9 +48,21 @@ class ResearchWorkerServiceTest(unittest.TestCase):
     def test_rewrite_queries_deduplicates_and_limits_results(self) -> None:
         queries = rewrite_queries(self.task, self.request, settings=self.settings)
         self.assertLessEqual(len(queries), 6)
-        self.assertEqual(len(queries), len(set(query.casefold() for query in queries)))
-        self.assertTrue(any("evidence scoring" in query.casefold() for query in queries))
-        self.assertTrue(any("official" in query.casefold() for query in queries))
+        self.assertEqual(len(queries), len(set(query.query.casefold() for query in queries)))
+        self.assertTrue(any("evidence scoring" in query.query.casefold() for query in queries))
+        self.assertTrue(any(query.intent == "official" for query in queries))
+
+    def test_select_queries_for_budget_prefers_higher_priority_intents(self) -> None:
+        selected = select_queries_for_budget(
+            [
+                ResearchQuery(query="risk query", intent="risk", priority=4),
+                ResearchQuery(query="recent query", intent="recent", priority=1),
+                ResearchQuery(query="official query", intent="official", priority=0),
+            ],
+            budget=2,
+        )
+
+        self.assertEqual([item.intent for item in selected], ["official", "recent"])
 
     def test_rank_search_hits_prefers_relevant_titles(self) -> None:
         ranked = rank_search_hits(

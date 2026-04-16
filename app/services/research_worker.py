@@ -4,7 +4,7 @@ import re
 from urllib.parse import urlparse
 
 from app.config import Settings
-from app.domain.models import AcquiredContent, Evidence, ResearchRequest, ResearchTask, SearchHit, SourceDocument
+from app.domain.models import AcquiredContent, Evidence, ResearchQuery, ResearchRequest, ResearchTask, SearchHit, SourceDocument
 from app.services.evidence_extraction import build_task_evidence as _build_task_evidence
 from app.services.query_rewrite import rewrite_queries as _rewrite_queries
 from app.services.source_content import MIN_PAGE_CHARS, MIN_SNIPPET_CHARS, normalize_content_text, preferred_content_text, quality_failure_reason
@@ -14,8 +14,28 @@ _MIN_PAGE_SCORE = 0.12
 _TOKEN_PATTERN = re.compile(r"[\u4e00-\u9fff]{2,}|[a-z0-9]{3,}", re.IGNORECASE)
 
 
-def rewrite_queries(task: ResearchTask, request: ResearchRequest, settings: Settings | None = None) -> list[str]:
+def rewrite_queries(
+    task: ResearchTask,
+    request: ResearchRequest,
+    settings: Settings | None = None,
+) -> list[ResearchQuery]:
     return _rewrite_queries(task, request, settings=settings)
+
+
+def select_queries_for_budget(queries: list[ResearchQuery], budget: int) -> list[ResearchQuery]:
+    if not queries or budget <= 0:
+        return []
+    ordered = sorted(
+        queries,
+        key=lambda item: (item.priority, item.query.casefold()),
+    )
+    return ordered[:budget]
+
+
+def select_hits_for_fetch_budget(hits: list[SearchHit], budget: int) -> list[SearchHit]:
+    if not hits or budget <= 0:
+        return []
+    return hits[:budget]
 
 
 def rank_search_hits(task: ResearchTask, hits: list[SearchHit], limit: int) -> list[SearchHit]:

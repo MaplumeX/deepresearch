@@ -9,7 +9,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.config import Settings
-from app.domain.models import ReportDraft, ReportSectionDraft, StructuredReport
+from app.domain.models import CoverageRequirement, ReportDraft, ReportSectionDraft, StructuredReport
 from app.services.conversation_memory import build_contextual_brief
 from app.services.llm import build_structured_chat_model, can_use_llm
 from app.services.report_contract import ReportLabels, build_structured_report, get_report_labels
@@ -32,6 +32,7 @@ _MAX_REPORT_HEADING_LENGTH = 80
 @dataclass(frozen=True, slots=True)
 class CompactPayload:
     tasks: list[dict[str, Any]]
+    coverage_requirements: list[dict[str, Any]]
     findings: list[dict[str, Any]]
     sources: dict[str, dict[str, Any]]
     memory_brief: str
@@ -78,12 +79,21 @@ def assign_report_headings(
 def _fallback_report(
     question: str,
     tasks: list[dict],
+    coverage_requirements: list[dict] | None,
     findings: list[dict],
     labels: ReportLabels,
 ) -> ReportDraft:
-    analysis_sections = _build_task_sections(tasks, findings, labels)
+    normalized_requirements = _normalize_coverage_requirements(coverage_requirements, labels)
+    if normalized_requirements:
+        analysis_sections = _build_requirement_sections(tasks, normalized_requirements, findings)
+    else:
+        analysis_sections = _build_task_sections(tasks, findings, labels)
 
-    risks = _build_risk_section(findings, labels)
+    risks = (
+        None
+        if _has_risk_requirement(normalized_requirements)
+        else _build_risk_section(findings, labels)
+    )
     if risks is not None:
         analysis_sections.append(risks)
 
@@ -135,12 +145,14 @@ def _maybe_synthesize_single_call(
                 "Current question:\n{question}\n\n"
                 "Background brief:\n{memory_brief}\n\n"
                 "Current tasks:\n{tasks}\n\n"
+                "Coverage rubric:\n{coverage_requirements}\n\n"
                 "Findings:\n{findings}\n\n"
                 "Sources:\n{sources}\n\n"
                 "Write a report-style synthesis. "
                 "Write the report in {language_name}. "
                 "Use the summary field for a concise cited summary under the heading '{summary_heading}'. "
-                "In sections, prioritize task-based chapters using each task's report_heading as the chapter heading, then include '{risks_heading}' when the evidence warrants it, and finish with '{conclusion_heading}'. "
+                "If a coverage rubric is provided, prioritize rubric-based chapters in that order; otherwise prioritize task-based chapters using each task's report_heading as the chapter heading. "
+                "Include '{risks_heading}' only when the evidence warrants it and the rubric does not already reserve a risk section, then finish with '{conclusion_heading}'. "
                 "Do not include background, conversation context, or open questions sections. "
                 "Use inline citations on factual claims.",
             ),
@@ -157,6 +169,7 @@ def _maybe_synthesize_single_call(
                 "question": question,
                 "memory_brief": payload.memory_brief,
                 "tasks": payload.tasks,
+                "coverage_requirements": payload.coverage_requirements,
                 "findings": payload.findings,
                 "sources": payload.sources,
                 "language_name": labels.language_name,
@@ -175,6 +188,7 @@ def _maybe_synthesize_single_call(
 def _maybe_synthesize_multi_stage(
     question: str,
     tasks: list[dict],
+    coverage_requirements: list[dict] | None,
     findings: list[dict],
     sources: dict[str, dict],
     settings: Settings,
@@ -182,12 +196,14 @@ def _maybe_synthesize_multi_stage(
     labels: ReportLabels,
 ) -> ReportDraft | None:
     section_drafts: list[ReportSectionDraft] = []
-    for plan in _build_section_plans(tasks, findings, labels):
+    normalized_requirements = _normalize_coverage_requirements(coverage_requirements, labels)
+    for plan in _build_section_plans(tasks, normalized_requirements, findings, labels):
         section_drafts.extend(
             _synthesize_section_plan(
                 question=question,
                 plan=plan,
                 tasks=tasks,
+                coverage_requirements=normalized_requirements,
                 sources=sources,
                 settings=settings,
                 memory_brief=memory_brief,
@@ -197,7 +213,7 @@ def _maybe_synthesize_multi_stage(
 
     if not section_drafts:
         return None
-    return _merge_section_drafts(tasks, findings, section_drafts, labels)
+    return _merge_section_drafts(tasks, normalized_requirements, findings, section_drafts, labels)
 
 
 def synthesize_report(
@@ -206,20 +222,39 @@ def synthesize_report(
     findings: list[dict],
     sources: dict[str, dict],
     settings: Settings,
+    *,
+    coverage_requirements: list[dict] | None = None,
     memory: dict[str, Any] | None = None,
     output_language: str | None = None,
 ) -> StructuredReport:
     labels = get_report_labels(output_language)
+    normalized_requirements = _normalize_coverage_requirements(coverage_requirements, labels)
     drafted: ReportDraft | None = None
     if settings.enable_llm_synthesis and can_use_llm(settings) and findings:
         memory_brief = _build_synthesis_memory_brief(memory)
-        payload = _build_compact_payload(question, tasks, findings, sources, memory_brief)
+        payload = _build_compact_payload(
+            question,
+            tasks,
+            normalized_requirements,
+            findings,
+            sources,
+            memory_brief,
+        )
         if _should_keep_payload_together(payload, settings):
             drafted = _maybe_synthesize_single_call(question, payload, settings, labels)
         if drafted is None:
-            drafted = _maybe_synthesize_multi_stage(question, tasks, findings, sources, settings, memory_brief, labels)
+            drafted = _maybe_synthesize_multi_stage(
+                question,
+                tasks,
+                normalized_requirements,
+                findings,
+                sources,
+                settings,
+                memory_brief,
+                labels,
+            )
     if drafted is None:
-        drafted = _fallback_report(question, tasks, findings, labels)
+        drafted = _fallback_report(question, tasks, normalized_requirements, findings, labels)
     return build_structured_report(
         drafted,
         sources=sources,
@@ -232,6 +267,7 @@ def _synthesize_section_plan(
     question: str,
     plan: SectionPlan,
     tasks: list[dict],
+    coverage_requirements: list[dict[str, Any]],
     sources: dict[str, dict],
     settings: Settings,
     memory_brief: str,
@@ -241,6 +277,7 @@ def _synthesize_section_plan(
     plan_payload = _build_compact_payload(
         question,
         relevant_tasks,
+        coverage_requirements,
         plan.findings,
         sources,
         memory_brief,
@@ -266,6 +303,7 @@ def _synthesize_section_plan(
         for chunk in _chunk_findings_for_budget(
             question=question,
             tasks=[task],
+            coverage_requirements=coverage_requirements,
             findings=task_findings,
             sources=sources,
             settings=settings,
@@ -277,6 +315,7 @@ def _synthesize_section_plan(
             payload = _build_compact_payload(
                 question,
                 [task],
+                coverage_requirements,
                 chunk,
                 sources,
                 memory_brief,
@@ -374,6 +413,7 @@ def _maybe_synthesize_section_with_llm(
 
 def _merge_section_drafts(
     tasks: list[dict],
+    coverage_requirements: list[dict[str, Any]],
     findings: list[dict],
     section_drafts: list[ReportSectionDraft],
     labels: ReportLabels,
@@ -385,7 +425,7 @@ def _merge_section_drafts(
             continue
         grouped[draft.heading].append(body)
 
-    ordered_headings = _ordered_report_headings(tasks, grouped, labels)
+    ordered_headings = _ordered_report_headings(tasks, coverage_requirements, grouped, labels)
     sections = [
         ReportSectionDraft(
             heading=heading,
@@ -403,11 +443,18 @@ def _merge_section_drafts(
     )
 
 
-def _build_section_plans(tasks: list[dict], findings: list[dict], labels: ReportLabels) -> list[SectionPlan]:
-    plans = _build_task_section_plans(tasks, findings)
+def _build_section_plans(
+    tasks: list[dict],
+    coverage_requirements: list[dict[str, Any]],
+    findings: list[dict],
+    labels: ReportLabels,
+) -> list[SectionPlan]:
+    plans = _build_requirement_section_plans(tasks, coverage_requirements, findings)
+    if not plans:
+        plans = _build_task_section_plans(tasks, findings)
 
     risks = [item for item in findings if _is_risk_finding(item)]
-    if risks:
+    if risks and not _has_risk_requirement(coverage_requirements):
         plans.append(
             SectionPlan(
                 heading=labels.risks_heading,
@@ -471,6 +518,7 @@ def _can_invoke_payload(estimated_size: int, settings: Settings) -> bool:
 def _chunk_findings_for_budget(
     question: str,
     tasks: list[dict],
+    coverage_requirements: list[dict[str, Any]],
     findings: list[dict],
     sources: dict[str, dict],
     settings: Settings,
@@ -486,6 +534,7 @@ def _chunk_findings_for_budget(
         payload = _build_compact_payload(
             question,
             tasks,
+            coverage_requirements,
             candidate,
             sources,
             memory_brief,
@@ -506,6 +555,7 @@ def _chunk_findings_for_budget(
 def _build_compact_payload(
     question: str,
     tasks: list[dict],
+    coverage_requirements: list[dict[str, Any]],
     findings: list[dict],
     sources: dict[str, dict],
     memory_brief: str,
@@ -515,11 +565,13 @@ def _build_compact_payload(
     focus: str | None = None,
 ) -> CompactPayload:
     compact_tasks = _build_compact_tasks(tasks)
+    compact_requirements = _build_compact_coverage_requirements(coverage_requirements)
     compact_findings = _build_compact_findings(findings)
     compact_sources = _build_compact_sources(sources, compact_findings)
     estimated_size = _estimate_payload_size(
         question=question,
         tasks=compact_tasks,
+        coverage_requirements=compact_requirements,
         findings=compact_findings,
         sources=compact_sources,
         memory_brief=memory_brief,
@@ -529,6 +581,7 @@ def _build_compact_payload(
     )
     return CompactPayload(
         tasks=compact_tasks,
+        coverage_requirements=compact_requirements,
         findings=compact_findings,
         sources=compact_sources,
         memory_brief=memory_brief,
@@ -551,6 +604,27 @@ def _build_compact_tasks(tasks: list[dict]) -> list[dict[str, str]]:
             }
         )
     return compact_tasks
+
+
+def _build_compact_coverage_requirements(
+    coverage_requirements: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    compact_requirements: list[dict[str, Any]] = []
+    for requirement in coverage_requirements:
+        requirement_id = _as_text(requirement.get("requirement_id"))
+        heading = _trim_text(_as_text(requirement.get("heading")), _MAX_REPORT_HEADING_LENGTH)
+        description = _trim_text(_as_text(requirement.get("description")), _MAX_TASK_QUESTION_LENGTH)
+        if not requirement_id or not heading:
+            continue
+        compact_requirements.append(
+            {
+                "requirement_id": requirement_id,
+                "heading": heading,
+                "description": description,
+                "coverage_tags": _as_string_list(requirement.get("coverage_tags")),
+            }
+        )
+    return compact_requirements
 
 
 def _build_compact_findings(findings: list[dict]) -> list[dict[str, Any]]:
@@ -624,6 +698,7 @@ def _estimate_payload_size(
     *,
     question: str,
     tasks: list[dict[str, Any]],
+    coverage_requirements: list[dict[str, Any]],
     findings: list[dict[str, Any]],
     sources: dict[str, dict[str, Any]],
     memory_brief: str,
@@ -635,6 +710,7 @@ def _estimate_payload_size(
         "question": _trim_text(question, _MAX_TASK_QUESTION_LENGTH),
         "memory_brief": memory_brief,
         "tasks": tasks,
+        "coverage_requirements": coverage_requirements,
         "findings": findings,
         "sources": sources,
     }
@@ -715,6 +791,19 @@ def _build_task_sections(tasks: list[dict], findings: list[dict], labels: Report
     return sections
 
 
+def _build_requirement_sections(
+    tasks: list[dict],
+    coverage_requirements: list[dict[str, Any]],
+    findings: list[dict],
+) -> list[ReportSectionDraft]:
+    sections: list[ReportSectionDraft] = []
+    for plan in _build_requirement_section_plans(tasks, coverage_requirements, findings):
+        section = _fallback_section(plan.heading, plan.findings)
+        if section is not None:
+            sections.append(section)
+    return sections
+
+
 def _build_task_section_plans(tasks: list[dict], findings: list[dict]) -> list[SectionPlan]:
     grouped: dict[str, list[dict]] = defaultdict(list)
     for finding in findings:
@@ -741,6 +830,26 @@ def _build_task_section_plans(tasks: list[dict], findings: list[dict]) -> list[S
     return plans
 
 
+def _build_requirement_section_plans(
+    tasks: list[dict],
+    coverage_requirements: list[dict[str, Any]],
+    findings: list[dict],
+) -> list[SectionPlan]:
+    plans: list[SectionPlan] = []
+    for requirement in coverage_requirements:
+        requirement_findings = _findings_for_requirement(tasks, requirement, findings)
+        if not requirement_findings:
+            continue
+        plans.append(
+            SectionPlan(
+                heading=_coverage_requirement_heading(requirement),
+                purpose=_coverage_requirement_purpose(requirement),
+                findings=requirement_findings,
+            )
+        )
+    return plans
+
+
 def _build_risk_section(findings: list[dict], labels: ReportLabels) -> ReportSectionDraft | None:
     risk_findings = [item for item in findings if _is_risk_finding(item)]
     return _fallback_section(labels.risks_heading, risk_findings, limit=4)
@@ -753,11 +862,18 @@ def _build_conclusion_section(findings: list[dict], labels: ReportLabels) -> Rep
 
 def _ordered_report_headings(
     tasks: list[dict],
+    coverage_requirements: list[dict[str, Any]],
     grouped_sections: dict[str, list[str]],
     labels: ReportLabels,
 ) -> list[str]:
     ordered: list[str] = []
     seen: set[str] = set()
+
+    for requirement in coverage_requirements:
+        heading = _coverage_requirement_heading(requirement)
+        if heading in grouped_sections and heading not in seen:
+            seen.add(heading)
+            ordered.append(heading)
 
     for task in tasks:
         heading = _task_report_heading(task)
@@ -784,6 +900,131 @@ def _primary_report_findings(findings: list[dict]) -> list[dict]:
 
 def _is_risk_finding(finding: dict[str, Any]) -> bool:
     return _as_text(finding.get("evidence_type")) in {"risk", "limitation"}
+
+
+def _normalize_coverage_requirements(
+    coverage_requirements: list[dict] | None,
+    labels: ReportLabels,
+) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in coverage_requirements or []:
+        try:
+            requirement = CoverageRequirement.model_validate(item)
+        except Exception:
+            continue
+        requirement_id = _normalize_space(requirement.requirement_id).casefold()
+        if not requirement_id or requirement_id in seen:
+            continue
+        seen.add(requirement_id)
+        normalized.append(
+            {
+                "requirement_id": requirement_id,
+                "title": _trim_text(requirement.title, _MAX_REPORT_HEADING_LENGTH) or requirement_id,
+                "description": _trim_text(requirement.description, _MAX_TASK_QUESTION_LENGTH),
+                "coverage_tags": [tag.casefold() for tag in requirement.coverage_tags if _as_text(tag)],
+                "heading": _coverage_requirement_heading(
+                    {
+                        "requirement_id": requirement_id,
+                        "title": requirement.title,
+                    },
+                    labels,
+                ),
+            }
+        )
+    return normalized
+
+
+def _coverage_requirement_heading(
+    requirement: dict[str, Any],
+    labels: ReportLabels | None = None,
+) -> str:
+    explicit_heading = _trim_text(_as_text(requirement.get("heading")), _MAX_REPORT_HEADING_LENGTH)
+    if explicit_heading:
+        return explicit_heading
+    requirement_id = _as_text(requirement.get("requirement_id")).casefold()
+    if requirement_id == "scope-terminology":
+        return "Scope and Terminology" if labels and labels.language_name == "English" else "范围与术语"
+    if requirement_id == "recent-evidence":
+        return "Recent Evidence and Examples" if labels and labels.language_name == "English" else "近期证据与案例"
+    if requirement_id == "risks-tradeoffs":
+        return labels.risks_heading if labels else "Risks and Limitations"
+    return (
+        _trim_text(_as_text(requirement.get("title")), _MAX_REPORT_HEADING_LENGTH)
+        or "Analysis"
+    )
+
+
+def _coverage_requirement_purpose(requirement: dict[str, Any]) -> str:
+    heading = _coverage_requirement_heading(requirement)
+    description = _trim_text(_as_text(requirement.get("description")), _MAX_TASK_QUESTION_LENGTH)
+    if description:
+        return description
+    return f"Explain the evidence-backed answer for {heading}."
+
+
+def _findings_for_requirement(
+    tasks: list[dict],
+    requirement: dict[str, Any],
+    findings: list[dict],
+) -> list[dict]:
+    matching_task_ids = {
+        _as_text(task.get("task_id"))
+        for task in tasks
+        if _task_matches_requirement(task, requirement)
+    }
+    related_findings = [
+        item for item in findings if _as_text(item.get("task_id")) in matching_task_ids
+    ]
+    filtered = _filter_findings_for_requirement(requirement, related_findings or findings)
+    if filtered:
+        return filtered
+    return related_findings
+
+
+def _task_matches_requirement(task: dict[str, Any], requirement: dict[str, Any]) -> bool:
+    task_tags = {tag.casefold() for tag in _as_string_list(task.get("coverage_tags"))}
+    requirement_tags = {tag.casefold() for tag in _as_string_list(requirement.get("coverage_tags"))}
+    return bool(task_tags & requirement_tags)
+
+
+def _filter_findings_for_requirement(
+    requirement: dict[str, Any],
+    findings: list[dict],
+) -> list[dict]:
+    tags = {tag.casefold() for tag in _as_string_list(requirement.get("coverage_tags"))}
+    if not findings:
+        return []
+    if "risks" in tags or "tradeoffs" in tags:
+        filtered = [
+            item
+            for item in findings
+            if _as_text(item.get("evidence_type")) in {"risk", "limitation", "comparison"}
+        ]
+        return filtered or [item for item in findings if _is_risk_finding(item)]
+    if "scope" in tags or "definitions" in tags:
+        filtered = [
+            item
+            for item in findings
+            if _as_text(item.get("evidence_type")) in {"definition", "fact"}
+        ]
+        return filtered or [item for item in findings if not _is_risk_finding(item)]
+    if "recent" in tags or "examples" in tags or "evidence" in tags:
+        filtered = [
+            item
+            for item in findings
+            if _as_text(item.get("evidence_type")) in {"example", "comparison", "statistic", "trend", "fact"}
+        ]
+        return filtered or [item for item in findings if not _is_risk_finding(item)]
+    return list(findings)
+
+
+def _has_risk_requirement(coverage_requirements: list[dict[str, Any]]) -> bool:
+    for requirement in coverage_requirements:
+        tags = {tag.casefold() for tag in _as_string_list(requirement.get("coverage_tags"))}
+        if "risks" in tags or "tradeoffs" in tags:
+            return True
+    return False
 
 
 def _normalize_task_heading(task: dict[str, Any]) -> str:

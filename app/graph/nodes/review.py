@@ -2,7 +2,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.types import interrupt
 
 from app.runtime_progress import emit_progress
-from app.services.research_progress import build_progress_payload
+from app.services.research_progress import build_progress_action, build_progress_payload
 from app.services.report_contract import default_report_title, derive_structured_report
 
 
@@ -15,6 +15,11 @@ def human_review(state: dict, config: RunnableConfig | None = None) -> dict:
                 "awaiting_review",
                 iteration=state.get("iteration_count"),
                 max_iterations=state.get("request", {}).get("max_iterations"),
+                action=build_progress_action(
+                    "review",
+                    label="等待人工复核",
+                    detail="系统已停止自动推进，等待你确认是否接受当前结果或手动修改报告。",
+                ),
                 review_required=True,
                 review_kind="human_review",
             ).model_dump(),

@@ -44,10 +44,10 @@ class QueryRewriteServiceTest(unittest.TestCase):
 
         self.assertGreaterEqual(len(queries), 3)
         self.assertLessEqual(len(queries), 6)
-        self.assertEqual(len(queries), len(set(query.casefold() for query in queries)))
-        self.assertTrue(any("official" in query.casefold() for query in queries))
-        self.assertTrue(any("latest" in query.casefold() or "2025" in query for query in queries))
-        self.assertTrue(any("risk" in query.casefold() or "limitations" in query.casefold() for query in queries))
+        self.assertEqual(len(queries), len(set(query.query.casefold() for query in queries)))
+        self.assertTrue(any(query.intent == "official" for query in queries))
+        self.assertTrue(any(query.intent == "recent" for query in queries))
+        self.assertTrue(any(query.intent == "risk" for query in queries))
 
 
 if __name__ == "__main__":

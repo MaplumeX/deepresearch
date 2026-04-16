@@ -231,6 +231,8 @@ def synthesize_report(
     findings: list[dict],
     sources: dict[str, dict],
     settings: Settings,
+    *,
+    coverage_requirements: list[dict] | None = None,
     memory: dict[str, Any] | None = None,
     output_language: str | None = None,
 ) -> StructuredReport
@@ -255,6 +257,7 @@ def get_report_labels(output_language: str | None) -> ReportLabels
 def _build_compact_payload(
     question: str,
     tasks: list[dict],
+    coverage_requirements: list[dict],
     findings: list[dict],
     sources: dict[str, dict],
     memory_brief: str,
@@ -274,6 +277,7 @@ def _maybe_synthesize_single_call(
 def _maybe_synthesize_multi_stage(
     question: str,
     tasks: list[dict],
+    coverage_requirements: list[dict] | None,
     findings: list[dict],
     sources: dict[str, dict],
     settings: Settings,
@@ -298,6 +302,8 @@ Compact payload rules:
 - `_build_compact_payload()` is the only allowed path for LLM synthesis input in `app/services/synthesis.py`.
 - `CompactPayload.tasks[*]` must contain only:
   `task_id`, `title`, `report_heading`, `question`
+- `CompactPayload.coverage_requirements[*]` must contain only:
+  `requirement_id`, `heading`, `description`, `coverage_tags`
 - `CompactPayload.sources[*]` must contain only:
   `source_id`, `title`, `url`, `snippet`, `providers`, `source_role`
 - `CompactPayload.findings[*]` must contain only:
@@ -320,12 +326,12 @@ Default report-structure rules:
 
 - Final report defaults must be:
   localized summary section
-  zero or more task-based chapters derived from `task.report_heading` when present, otherwise normalized from `task.title`
-  optional localized risk section when `evidence_type in {"risk", "limitation"}`
+  zero or more rubric-based chapters derived from `coverage_requirements` when present and supported by evidence; otherwise task-based chapters derived from `task.report_heading` when present, otherwise normalized from `task.title`
+  optional localized risk section when `evidence_type in {"risk", "limitation"}` and no rubric chapter already reserves the risk/tradeoff dimension
   localized conclusion section
   localized references section
 - `synthesize_report()` must not inject `Conversation Context` or `Open Questions` into the final default report output.
-- Task chapter ordering must follow task order from `tasks`, then risk section, then conclusion.
+- Rubric chapter ordering must follow `coverage_requirements`; task chapter ordering remains the fallback when no rubric chapters are emitted; both paths still end with risk section when needed, then conclusion.
 - `assign_report_headings()` is the only allowed path for generating `task.report_heading` values before report synthesis.
 - `task.title` remains the internal execution title for query rewriting, evidence extraction, and worker diagnostics; synthesis-only heading generation must not overwrite it.
 - Task chapter headings may be normalized into report-style headings by stripping imperative prefixes such as `Assess`, `Evaluate`, `Recover`, `评估`, `分析` when no valid `report_heading` is available.
@@ -335,7 +341,7 @@ Routing rules:
 - If `payload.estimated_size <= settings.synthesis_soft_char_limit` and the payload stays within `synthesis_max_findings_per_call` plus `synthesis_max_sources_per_call`, `synthesize_report()` may call `_maybe_synthesize_single_call()`.
 - If the compact payload exceeds the soft limit or record-count limits, `synthesize_report()` must switch to `_maybe_synthesize_multi_stage()`.
 - Multi-stage synthesis must split by semantic report sections first, not by arbitrary character ranges. Current default section groups are:
-  task-based chapters, localized risk section, localized conclusion section
+  rubric-based chapters when coverage requirements are available, otherwise task-based chapters, then localized risk section when needed, then localized conclusion section
 - If a section chunk still exceeds `settings.synthesis_hard_char_limit`, that chunk must skip the LLM call and fall back to deterministic section rendering.
 - `build_structured_report()` still receives the original `sources` and `findings` so citation auditing and source cards remain based on canonical state, not the compact prompt payload.
 
@@ -556,6 +562,31 @@ else:
         "evidence_count": "int or null",
         "warnings": "int or null"
       },
+      "action": {
+        "kind": "targeted_retry | replan | review",
+        "label": "short UI label for the current decision",
+        "detail": "short explanation for why the workflow is retrying, replanning, or waiting"
+      },
+      "gaps": [
+        {
+          "task_id": "task id or coverage requirement id",
+          "title": "short gap title",
+          "gap_type": "missing_evidence | weak_evidence | low_source_diversity | retrieval_failure | coverage_gap",
+          "severity": "low | medium | high",
+          "retry_action": "expand_queries | expand_fetch | replan | null",
+          "scope": "task | global"
+        }
+      ],
+      "retry_tasks": [
+        {
+          "task_id": "pending retry task id",
+          "title": "task title",
+          "retry_action": "expand_queries | expand_fetch | replan | null",
+          "retry_count": "int >= 0",
+          "query_budget": "int or null",
+          "fetch_budget": "int or null"
+        }
+      ],
       "review": {
         "required": "bool",
         "kind": "human_review | null"
@@ -567,6 +598,10 @@ else:
   }
 }
 ```
+
+- `progress.action` is optional and should only be present when the runtime can explain a concrete next step such as targeted retry, replanning, or human review.
+- `progress.gaps` is a compact explanation list for UI display; it does not replace the canonical `GraphState["gaps"]`.
+- `progress.retry_tasks` should only include currently pending targeted retries, not every task in the run.
 
 #### Chat Turn Event Contract
 
@@ -665,6 +700,7 @@ This store no longer auto-migrates pre-conversation legacy rows. If the on-disk 
   "request": "normalized request payload",
   "memory": "conversation short-term memory payload with recent 5 runs plus persisted older summary",
   "tasks": "list of research tasks with optional report_heading",
+  "coverage_requirements": "list of global answer-coverage requirements emitted by the planner",
   "raw_findings": "append-only list of worker evidence",
   "raw_source_batches": "append-only list of worker source maps",
   "task_outcomes": "append-only list of per-task worker diagnostics for the current and earlier iterations",
@@ -690,12 +726,30 @@ Task contract inside `GraphState["tasks"]`:
   "title": "internal execution title used by retrieval/extraction flows",
   "report_heading": "optional synthesis-only chapter heading",
   "question": "string",
+  "coverage_tags": "list[str], planner-assigned coverage intents such as scope/recent/risks",
+  "query_budget": "int, 1..6, initial query budget for this task",
+  "fetch_budget": "int, 1..10, initial ranked-hit fetch budget for this task",
+  "retry_count": "int >= 0, targeted retry attempts already consumed for this task",
   "status": "pending | running | done | failed"
 }
 ```
 
 - `title` must stay stable across worker execution and gap recovery.
 - `report_heading` may be populated during synthesis, but it must not replace `title` in retrieval, evidence extraction, or worker-quality services.
+- `coverage_tags` are planner-owned hints used by quality and coverage checks; they are not user-authored request fields.
+- `query_budget` and `fetch_budget` are execution controls, not user-visible report content.
+- `retry_count` advances only for targeted task retries that return to `dispatch_tasks`; it does not replace graph-level `iteration_count`.
+
+Coverage requirement contract inside `GraphState["coverage_requirements"]`:
+
+```json
+{
+  "requirement_id": "stable planner-generated id",
+  "title": "short rubric label",
+  "description": "what a complete answer still needs to cover",
+  "coverage_tags": "list[str], normalized tags used to match tasks and evidence"
+}
+```
 
 #### Worker Task Outcome Contract
 
@@ -705,12 +759,16 @@ Task contract inside `GraphState["tasks"]`:
   "title": "task title",
   "quality_status": "ok | weak | failed",
   "query_count": "int >= 0",
+  "total_query_count": "int >= query_count, full query plan size before budgeting",
   "search_hit_count": "int >= 0",
   "acquired_content_count": "int >= 0",
   "kept_source_count": "int >= 0",
   "evidence_count": "int >= 0",
   "host_count": "int >= 0",
-  "failure_reasons": "list[str]"
+  "failure_reasons": "list[str]",
+  "executed_queries": "list[str], query strings actually executed in this attempt",
+  "used_urls": "list[str], ranked URLs consumed by the fetch stage in this attempt",
+  "stage_status": "stage -> ok | failed map for rewrite/search/acquire/extract/emit"
 }
 ```
 
@@ -718,12 +776,13 @@ Task contract inside `GraphState["tasks"]`:
 
 ```json
 {
-  "gap_type": "missing_evidence | weak_evidence | low_source_diversity | retrieval_failure",
+  "gap_type": "missing_evidence | weak_evidence | low_source_diversity | retrieval_failure | coverage_gap",
   "task_id": "string",
   "title": "short follow-up title",
   "reason": "why the gap exists",
   "retry_hint": "deterministic suggestion for the next planning round",
-  "severity": "low | medium | high"
+  "severity": "low | medium | high",
+  "retry_action": "expand_queries | expand_fetch | replan | null"
 }
 ```
 
@@ -955,13 +1014,13 @@ REQUIRE_HUMAN_REVIEW     optional bool, defaults to false
 | follow-up manager -> memory builder | conversation detail, optional persisted conversation memory | build memory from the recent 5 runs; if the requested parent run falls outside the latest 5, force it into the window and recompute older summary on the fly | fall back to deterministic summary rebuild instead of dropping memory context |
 | run store -> detail/list API | `run_id` or conversation/list query | run must exist for detail/event routes; conversation must exist for conversation routes | return 404 when target run or conversation is missing |
 | ingest_request -> graph state | request payload + memory payload | Normalize integer budgets before Pydantic validation and normalize memory shape into explicit `rolling_summary/recent_turns/key_facts/open_questions` keys | Invalid request values are clamped first, then validated; missing memory fields become empty defaults |
-| planner -> tasks | question + gaps + memory | Limit task count to `max_parallel_tasks`; assign iteration-scoped task ids such as `iter-2-task-1`; use memory only as continuity context, never as evidence | Fall back to deterministic task plan with structured gap title/reason/retry-hint when the OpenAI-compatible model path is unavailable |
-| task -> worker query rewrite | task question + request scope | Build at most 3 deduplicated queries for a single task | Fall back to deterministic query set without LLM |
+| planner -> tasks | question + gaps + memory | Limit task count to `max_parallel_tasks`; assign iteration-scoped task ids such as `iter-2-task-1`; emit `coverage_requirements` and normalized task `coverage_tags`; use memory only as continuity context, never as evidence | Fall back to deterministic task plan plus default coverage rubric when the OpenAI-compatible model path is unavailable |
+| task -> worker query rewrite | task question + request scope | Build at most 6 deduplicated queries for a single task, each with intent + priority metadata; worker execution must respect `task.query_budget` | Fall back to deterministic query set without LLM |
 | search -> acquire content | provider search hits | Merge duplicate URLs, keep provider metadata, require non-empty URL | Skip invalid hits and tolerate per-provider search failures |
-| acquire content -> extract | provider raw content / fetched HTML / snippet fallback | Try provider raw content first, then HTTP fetch, then snippet fallback | Skip unusable content and continue with any surviving acquisition path |
+| acquire content -> extract | provider search hits + ranked-hit fetch budget | Select at most `task.fetch_budget` ranked hits for acquisition; then try provider raw content first, then HTTP fetch, then snippet fallback | Skip unusable content and continue with any surviving acquisition path |
 | extract -> evidence scoring | normalized source documents | Drop short or weak pages, choose a focused snippet, and compute bounded `relevance_score` / `confidence` | Skip sources that do not meet the deterministic relevance floor |
 | worker -> task outcome | task, queries, ranked hits, acquired contents, kept sources, evidence | derive deterministic quality diagnostics from counts and host diversity | never throw because evidence is weak; emit `quality_status=weak/failed` and failure reasons instead |
-| merge -> gap_check | deduplicated findings + `task_outcomes` + current task list | create structured gaps and evaluate quality gate before synthesis | if gate fails and iteration budget remains, replan; if budget is exhausted, continue to synthesis with warnings and force human review |
+| merge -> gap_check | deduplicated findings + `task_outcomes` + current task list + planner coverage rubric | create structured task-local gaps, evaluate global coverage requirements, map retryable gaps to `expand_queries` or `expand_fetch`, and only replan when no targeted retry path remains | if retryable tasks remain and iteration budget exists, route back to `dispatch_tasks`; if only global coverage gaps remain and budget exists, replan; if budget is exhausted, continue to synthesis with warnings and force human review |
 | synthesize -> audit | markdown report + memory | Require citations to map to existing `sources`; memory may appear only in a background section and may not introduce citations | Set warning and require review when unknown citation ids exist |
 | run persistence -> conversation thread | run lifecycle updates | assistant message content mirrors final report, draft report, or failure text for the linked run | keep assistant placeholder empty while queued/running; update assistant message content on interrupt/completion/failure |
 | terminal run -> conversation memory store | conversation detail after completion/interruption/failure | persist summary/facts/questions for turns outside the recent 5-run window | write empty memory payload when the conversation has 5 or fewer runs instead of skipping the row |
@@ -1112,7 +1171,11 @@ def gap_check(state: dict) -> dict:
 
 ```python
 def gap_check(state: dict) -> dict:
-    gaps = identify_research_gaps(tasks, task_outcomes)
+    gaps = identify_research_gaps(
+        tasks,
+        task_outcomes,
+        coverage_requirements=coverage_requirements,
+    )
     quality_gate = evaluate_quality_gate(
         gaps,
         has_iteration_budget=iteration_count < request.max_iterations,

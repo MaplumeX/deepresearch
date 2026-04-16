@@ -11,7 +11,7 @@ def plan_research(state: dict, config: RunnableConfig | None = None) -> dict:
     request = ResearchRequest.model_validate(state["request"])
     settings = get_settings()
     next_iteration = state.get("iteration_count", 0) + 1
-    tasks = plan_research_tasks(
+    plan = plan_research_tasks(
         question=request.question,
         gaps=state.get("gaps", []),
         max_tasks=request.max_parallel_tasks,
@@ -19,7 +19,7 @@ def plan_research(state: dict, config: RunnableConfig | None = None) -> dict:
         memory=state.get("memory"),
     )
     serialized_tasks = []
-    for index, task in enumerate(tasks, start=1):
+    for index, task in enumerate(plan.tasks, start=1):
         serialized_tasks.append(
             task.model_copy(update={"task_id": f"iter-{next_iteration}-task-{index}"}).model_dump()
         )
@@ -41,5 +41,6 @@ def plan_research(state: dict, config: RunnableConfig | None = None) -> dict:
     )
     return {
         "tasks": serialized_tasks,
+        "coverage_requirements": [item.model_dump() for item in plan.coverage_requirements],
         "iteration_count": next_iteration,
     }

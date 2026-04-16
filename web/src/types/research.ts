@@ -86,6 +86,30 @@ export type ResearchTaskProgress = {
   worker_step: ResearchWorkerStep | null
 }
 
+export type ResearchProgressAction = {
+  kind: 'targeted_retry' | 'replan' | 'review'
+  label: string
+  detail: string | null
+}
+
+export type ResearchProgressGap = {
+  task_id: string
+  title: string
+  gap_type: 'missing_evidence' | 'weak_evidence' | 'low_source_diversity' | 'retrieval_failure' | 'coverage_gap'
+  severity: 'low' | 'medium' | 'high'
+  retry_action: 'expand_queries' | 'expand_fetch' | 'replan' | null
+  scope: 'task' | 'global'
+}
+
+export type ResearchRetryTaskProgress = {
+  task_id: string
+  title: string
+  retry_action: 'expand_queries' | 'expand_fetch' | 'replan' | null
+  retry_count: number
+  query_budget: number | null
+  fetch_budget: number | null
+}
+
 export type ResearchReviewProgress = {
   required: boolean
   kind: 'human_review' | null
@@ -98,6 +122,9 @@ export type ResearchProgressPayload = {
   max_iterations: number | null
   task: ResearchTaskProgress | null
   counts: ResearchProgressCounts
+  action: ResearchProgressAction | null
+  gaps: ResearchProgressGap[]
+  retry_tasks: ResearchRetryTaskProgress[]
   review: ResearchReviewProgress
 }
 
