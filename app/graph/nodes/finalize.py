@@ -1,9 +1,10 @@
-from __future__ import annotations
+from langchain_core.runnables import RunnableConfig
 
 from app.runtime_progress import emit_progress
 from app.services.research_progress import build_counts, build_progress_payload
 
-def finalize(state: dict, config: dict | None = None) -> dict:
+
+def finalize(state: dict, config: RunnableConfig | None = None) -> dict:
     emit_progress(
         config,
         {

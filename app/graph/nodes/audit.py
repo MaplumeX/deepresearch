@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+from langchain_core.runnables import RunnableConfig
 from pydantic import ValidationError
 
 from app.config import get_settings
@@ -10,7 +9,7 @@ from app.services.research_progress import build_counts, build_progress_payload
 from app.services.report_contract import default_report_title, derive_structured_report
 
 
-def citation_audit(state: dict, config: dict | None = None) -> dict:
+def citation_audit(state: dict, config: RunnableConfig | None = None) -> dict:
     warnings = list(state.get("warnings", []))
     draft_report = state.get("draft_report", "")
     sources = state.get("sources", {})

@@ -73,6 +73,7 @@ class ResearchRunStore:
                     conversation_id TEXT NOT NULL,
                     role TEXT NOT NULL,
                     content TEXT NOT NULL,
+                    provider_message_id TEXT,
                     run_id TEXT,
                     parent_message_id TEXT,
                     created_at TEXT NOT NULL,
@@ -80,6 +81,14 @@ class ResearchRunStore:
                 )
                 """
             )
+            try:
+                connection.execute(
+                    """
+                    ALTER TABLE conversation_messages ADD COLUMN provider_message_id TEXT
+                    """
+                )
+            except sqlite3.OperationalError:
+                pass
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS research_runs (
@@ -619,6 +628,7 @@ class ResearchRunStore:
                         conversation_id,
                         role,
                         content,
+                        provider_message_id,
                         run_id,
                         parent_message_id,
                         created_at,
@@ -828,6 +838,7 @@ class ResearchRunStore:
                     conversation_id,
                     role,
                     content,
+                    provider_message_id,
                     run_id,
                     parent_message_id,
                     created_at,
@@ -859,7 +870,13 @@ class ResearchRunStore:
             connection.commit()
         return self._require_chat_turn(turn_id)
 
-    def store_chat_turn_result(self, turn_id: str, content: str) -> ChatTurnDetail:
+    def store_chat_turn_result(
+        self,
+        turn_id: str,
+        content: str,
+        *,
+        provider_message_id: str | None = None,
+    ) -> ChatTurnDetail:
         now = utc_now_iso()
         with self._connect() as connection:
             cursor = connection.execute(
@@ -876,7 +893,13 @@ class ResearchRunStore:
             )
             if cursor.rowcount == 0:
                 raise KeyError(turn_id)
-            self._update_chat_assistant_message_content(connection, turn_id, content, now)
+            self._update_chat_assistant_message_content(
+                connection,
+                turn_id,
+                content,
+                now,
+                provider_message_id=provider_message_id,
+            )
             self._touch_chat_conversation(connection, turn_id, now)
             connection.commit()
         return self._require_chat_turn(turn_id)
@@ -898,7 +921,13 @@ class ResearchRunStore:
             )
             if cursor.rowcount == 0:
                 raise KeyError(turn_id)
-            self._update_chat_assistant_message_content(connection, turn_id, error_message, now)
+            self._update_chat_assistant_message_content(
+                connection,
+                turn_id,
+                error_message,
+                now,
+                provider_message_id=None,
+            )
             self._touch_chat_conversation(connection, turn_id, now)
             connection.commit()
         return self._require_chat_turn(turn_id)
@@ -1246,10 +1275,18 @@ class ResearchRunStore:
         self,
         turn_id: str,
         content: str,
+        *,
+        provider_message_id: str | None = None,
     ) -> None:
         now = utc_now_iso()
         with self._connect() as connection:
-            self._update_chat_assistant_message_content(connection, turn_id, content, now)
+            self._update_chat_assistant_message_content(
+                connection,
+                turn_id,
+                content,
+                now,
+                provider_message_id=provider_message_id,
+            )
             self._touch_chat_conversation(connection, turn_id, now)
             connection.commit()
 
@@ -1259,6 +1296,8 @@ class ResearchRunStore:
         turn_id: str,
         content: str,
         updated_at: str,
+        *,
+        provider_message_id: str | None,
     ) -> None:
         row = connection.execute(
             """
@@ -1273,10 +1312,10 @@ class ResearchRunStore:
         connection.execute(
             """
             UPDATE conversation_messages
-            SET content = ?, updated_at = ?
+            SET content = ?, provider_message_id = ?, updated_at = ?
             WHERE message_id = ?
             """,
-            (content, updated_at, row["assistant_message_id"]),
+            (content, provider_message_id, updated_at, row["assistant_message_id"]),
         )
 
     def _build_conversation_summary(
@@ -1322,6 +1361,7 @@ class ResearchRunStore:
             conversation_id=row["conversation_id"],
             role=row["role"],
             content=row["content"],
+            provider_message_id=row["provider_message_id"],
             run_id=row["run_id"],
             parent_message_id=row["parent_message_id"],
             created_at=row["created_at"],

@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+from langchain_core.runnables import RunnableConfig
 from langgraph.types import interrupt
 
 from app.runtime_progress import emit_progress
@@ -7,7 +6,7 @@ from app.services.research_progress import build_progress_payload
 from app.services.report_contract import default_report_title, derive_structured_report
 
 
-def human_review(state: dict, config: dict | None = None) -> dict:
+def human_review(state: dict, config: RunnableConfig | None = None) -> dict:
     emit_progress(
         config,
         {

@@ -118,7 +118,7 @@ def build_graph(checkpointer=None):
 **核心调用链**：
 1. `app.services.planning.plan_research_tasks(question, gaps, max_tasks, settings, memory)`
 2. 内部先尝试 `_maybe_plan_with_llm`：
-   - 使用 `ChatPromptTemplate` + `PydanticOutputParser(ResearchPlan)` 调用 planner LLM
+   - 使用 `ChatPromptTemplate` + `ChatOpenAI.with_structured_output(ResearchPlan)` 调用 planner LLM
    - Prompt 中注入 conversation memory（rolling summary、recent turns、key facts、open questions）和 gaps
 3. 若 LLM 不可用或调用失败，则回退到 `_build_fallback_plan`：
    - 若有 gaps，按 gap 的 `title`/`reason`/`retry_hint` 构造任务

@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from app.config import Settings, get_settings
 from app.domain.models import ResearchRequest, ResearchTask
-from app.services.llm import build_chat_model, can_use_llm
+from app.services.llm import build_structured_chat_model, can_use_llm
 
 
 _QUERY_LIMIT = 6
@@ -71,12 +71,10 @@ def _maybe_rewrite_queries_with_llm(
         return None
 
     try:
-        from langchain_core.output_parsers import PydanticOutputParser
         from langchain_core.prompts import ChatPromptTemplate
     except ImportError:
         return None
 
-    parser = PydanticOutputParser(pydantic_object=QueryRewritePlan)
     prompt = ChatPromptTemplate.from_messages(
         [
             (
@@ -93,16 +91,15 @@ def _maybe_rewrite_queries_with_llm(
                 "Task title:\n{task_title}\n\n"
                 "Task question:\n{task_question}\n\n"
                 "Scope:\n{scope}\n\n"
-                "Return only distinct queries with explicit intent labels.\n"
-                "{format_instructions}",
+                "Return only distinct queries with explicit intent labels.",
             ),
         ]
     )
-    model = build_chat_model(settings.planner_model, settings, temperature=0)
+    model = build_structured_chat_model(settings.planner_model, settings, QueryRewritePlan, temperature=0)
     if model is None:
         return None
 
-    chain = prompt | model | parser
+    chain = prompt | model
     try:
         response: QueryRewritePlan = chain.invoke(
             {
@@ -110,7 +107,6 @@ def _maybe_rewrite_queries_with_llm(
                 "task_title": task.title,
                 "task_question": task.question,
                 "scope": request.scope or "None",
-                "format_instructions": parser.get_format_instructions(),
             }
         )
     except Exception:

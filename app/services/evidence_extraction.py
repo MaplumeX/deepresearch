@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from app.config import Settings, get_settings
 from app.domain.models import Evidence, EvidenceType, ResearchTask, SourceDocument, SourceRole
-from app.services.llm import build_chat_model, can_use_llm
+from app.services.llm import build_structured_chat_model, can_use_llm
 
 
 _MAX_EVIDENCE_PER_SOURCE = 3
@@ -78,7 +78,6 @@ def _maybe_extract_source_evidence_with_llm(
         return []
 
     try:
-        from langchain_core.output_parsers import PydanticOutputParser
         from langchain_core.prompts import ChatPromptTemplate
     except ImportError:
         return []
@@ -87,7 +86,6 @@ def _maybe_extract_source_evidence_with_llm(
     if not candidate_snippets:
         return []
 
-    parser = PydanticOutputParser(pydantic_object=EvidenceExtractionDraft)
     prompt = ChatPromptTemplate.from_messages(
         [
             (
@@ -104,16 +102,15 @@ def _maybe_extract_source_evidence_with_llm(
                 "Task question:\n{task_question}\n\n"
                 "Source title:\n{source_title}\n\n"
                 "Source URL:\n{source_url}\n\n"
-                "Candidate snippets:\n{candidate_snippets}\n\n"
-                "{format_instructions}",
+                "Candidate snippets:\n{candidate_snippets}",
             ),
         ]
     )
-    model = build_chat_model(settings.synthesis_model, settings, temperature=0)
+    model = build_structured_chat_model(settings.synthesis_model, settings, EvidenceExtractionDraft, temperature=0)
     if model is None:
         return []
 
-    chain = prompt | model | parser
+    chain = prompt | model
     try:
         response: EvidenceExtractionDraft = chain.invoke(
             {
@@ -122,7 +119,6 @@ def _maybe_extract_source_evidence_with_llm(
                 "source_title": source.title,
                 "source_url": source.url,
                 "candidate_snippets": "\n".join(f"- {snippet}" for snippet in candidate_snippets),
-                "format_instructions": parser.get_format_instructions(),
             }
         )
     except Exception:

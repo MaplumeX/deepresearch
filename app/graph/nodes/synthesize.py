@@ -1,4 +1,4 @@
-from __future__ import annotations
+from langchain_core.runnables import RunnableConfig
 
 from app.config import get_settings
 from app.runtime_progress import emit_progress
@@ -6,7 +6,7 @@ from app.services.research_progress import build_counts, build_progress_payload
 from app.services.synthesis import assign_report_headings, synthesize_report
 
 
-def synthesize_report_node(state: dict, config: dict | None = None) -> dict:
+def synthesize_report_node(state: dict, config: RunnableConfig | None = None) -> dict:
     settings = get_settings()
     emit_progress(
         config,

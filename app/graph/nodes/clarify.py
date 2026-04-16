@@ -1,10 +1,10 @@
-from __future__ import annotations
+from langchain_core.runnables import RunnableConfig
 
 from app.runtime_progress import emit_progress
 from app.services.research_progress import build_progress_payload
 
 
-def clarify_scope(state: dict, config: dict | None = None) -> dict:
+def clarify_scope(state: dict, config: RunnableConfig | None = None) -> dict:
     request = dict(state["request"])
     emit_progress(
         config,

@@ -1,11 +1,11 @@
-from __future__ import annotations
+from langchain_core.runnables import RunnableConfig
 
 from app.runtime_progress import emit_progress
 from app.services.dedupe import dedupe_findings
 from app.services.research_progress import build_counts, build_progress_payload, count_completed_tasks
 
 
-def merge_evidence(state: dict, config: dict | None = None) -> dict:
+def merge_evidence(state: dict, config: RunnableConfig | None = None) -> dict:
     sources = dict(state.get("sources", {}))
     for batch in state.get("raw_source_batches", []):
         sources.update(batch)

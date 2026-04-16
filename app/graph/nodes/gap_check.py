@@ -1,4 +1,4 @@
-from __future__ import annotations
+from langchain_core.runnables import RunnableConfig
 
 from app.domain.models import QualityGateResult, ResearchRequest, ResearchTask, ResearchTaskOutcome
 from app.runtime_progress import emit_progress
@@ -10,7 +10,7 @@ from app.services.research_quality import (
 from app.services.research_progress import build_counts, build_progress_payload
 
 
-def gap_check(state: dict, config: dict | None = None) -> dict:
+def gap_check(state: dict, config: RunnableConfig | None = None) -> dict:
     tasks = [ResearchTask.model_validate(item) for item in state.get("tasks", [])]
     task_outcomes = [
         ResearchTaskOutcome.model_validate(item)

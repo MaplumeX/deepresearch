@@ -1,7 +1,6 @@
-from __future__ import annotations
-
 from typing import TypedDict
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 
 from app.domain.models import AcquiredContent, ResearchRequest, ResearchTask, SearchHit, SourceDocument
@@ -42,7 +41,7 @@ def _request_from_state(state: ResearchWorkerState) -> ResearchRequest:
 
 def _emit_worker_progress(
     state: ResearchWorkerState,
-    config: dict | None,
+    config: RunnableConfig | None,
     *,
     worker_step: str,
     message: str,
@@ -79,7 +78,7 @@ def _emit_worker_progress(
     )
 
 
-def rewrite_queries_node(state: ResearchWorkerState, config: dict | None = None) -> dict:
+def rewrite_queries_node(state: ResearchWorkerState, config: RunnableConfig | None = None) -> dict:
     _emit_worker_progress(state, config, worker_step="rewrite_queries", message="Rewriting search queries for the current task.")
     task = _task_from_state(state)
     request = _request_from_state(state)
@@ -87,7 +86,7 @@ def rewrite_queries_node(state: ResearchWorkerState, config: dict | None = None)
     return {"queries": rewrite_queries(task, request, settings=settings)}
 
 
-async def search_and_rank_node(state: ResearchWorkerState, config: dict | None = None) -> dict:
+async def search_and_rank_node(state: ResearchWorkerState, config: RunnableConfig | None = None) -> dict:
     _emit_worker_progress(state, config, worker_step="search_and_rank", message="Searching the web and ranking candidate sources.")
     task = _task_from_state(state)
     queries = state.get("queries", [])
@@ -98,7 +97,7 @@ async def search_and_rank_node(state: ResearchWorkerState, config: dict | None =
     return {"search_hits": [hit.model_dump() for hit in ranked_hits]}
 
 
-async def acquire_and_filter_node(state: ResearchWorkerState, config: dict | None = None) -> dict:
+async def acquire_and_filter_node(state: ResearchWorkerState, config: RunnableConfig | None = None) -> dict:
     _emit_worker_progress(
         state,
         config,
@@ -127,7 +126,7 @@ async def acquire_and_filter_node(state: ResearchWorkerState, config: dict | Non
     return {"acquired_contents": [item.model_dump() for item in filtered_contents]}
 
 
-def extract_and_score_node(state: ResearchWorkerState, config: dict | None = None) -> dict:
+def extract_and_score_node(state: ResearchWorkerState, config: RunnableConfig | None = None) -> dict:
     _emit_worker_progress(
         state,
         config,
@@ -147,7 +146,7 @@ def extract_and_score_node(state: ResearchWorkerState, config: dict | None = Non
     }
 
 
-def emit_results_node(state: ResearchWorkerState, config: dict | None = None) -> dict:
+def emit_results_node(state: ResearchWorkerState, config: RunnableConfig | None = None) -> dict:
     _emit_worker_progress(
         state,
         config,
@@ -208,7 +207,7 @@ def build_research_worker_graph():
 _RESEARCH_WORKER_GRAPH = build_research_worker_graph()
 
 
-async def research_worker(state: dict, config: dict | None = None) -> dict:
+async def research_worker(state: dict, config: RunnableConfig | None = None) -> dict:
     result = await _RESEARCH_WORKER_GRAPH.ainvoke(
         {
             "request": state["request"],

@@ -1,4 +1,4 @@
-from __future__ import annotations
+from langchain_core.runnables import RunnableConfig
 
 from app.config import get_settings
 from app.domain.models import ResearchRequest
@@ -7,7 +7,7 @@ from app.services.planning import plan_research_tasks
 from app.services.research_progress import build_counts, build_progress_payload, count_completed_tasks
 
 
-def plan_research(state: dict, config: dict | None = None) -> dict:
+def plan_research(state: dict, config: RunnableConfig | None = None) -> dict:
     request = ResearchRequest.model_validate(state["request"])
     settings = get_settings()
     next_iteration = state.get("iteration_count", 0) + 1

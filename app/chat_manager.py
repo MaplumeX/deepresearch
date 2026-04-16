@@ -173,8 +173,12 @@ class ChatConversationManager:
             if conversation is None:
                 raise ChatConversationNotFoundError(running_turn.conversation_id)
 
-            def on_chunk(content: str) -> None:
-                self._store.update_chat_assistant_message_content(turn_id, content)
+            def on_chunk(content: str, provider_message_id: str | None) -> None:
+                self._store.update_chat_assistant_message_content(
+                    turn_id,
+                    content,
+                    provider_message_id=provider_message_id,
+                )
                 turn = self._store.get_chat_turn(turn_id)
                 if turn is not None:
                     self._publish("chat.turn.progress", turn, {})
@@ -189,7 +193,11 @@ class ChatConversationManager:
             self._publish("chat.turn.failed", failed_turn, {})
             return
 
-        completed_turn = self._store.store_chat_turn_result(turn_id, reply)
+        completed_turn = self._store.store_chat_turn_result(
+            turn_id,
+            reply.text,
+            provider_message_id=reply.provider_message_id,
+        )
         self._publish("chat.turn.completed", completed_turn, {})
 
     def _publish(self, event_type: ChatEventType, turn: ChatTurnDetail, data: dict) -> None:

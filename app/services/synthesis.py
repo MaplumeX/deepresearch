@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from app.config import Settings
 from app.domain.models import ReportDraft, ReportSectionDraft, StructuredReport
 from app.services.conversation_memory import build_contextual_brief
-from app.services.llm import build_chat_model, can_use_llm
+from app.services.llm import build_structured_chat_model, can_use_llm
 from app.services.report_contract import ReportLabels, build_structured_report, get_report_labels
 _TASK_HEADING_PREFIX_PATTERN = re.compile(
     r"^(?:assess|analyze|analyse|compare|evaluate|examine|investigate|review|study|validate|verify|collect|establish|recover|determine|identify|understand|map|synthesize)\s+",
@@ -116,12 +116,10 @@ def _maybe_synthesize_single_call(
         return None
 
     try:
-        from langchain_core.output_parsers import PydanticOutputParser
         from langchain_core.prompts import ChatPromptTemplate
     except ImportError:
         return None
 
-    parser = PydanticOutputParser(pydantic_object=ReportDraft)
     prompt = ChatPromptTemplate.from_messages(
         [
             (
@@ -144,16 +142,15 @@ def _maybe_synthesize_single_call(
                 "Use the summary field for a concise cited summary under the heading '{summary_heading}'. "
                 "In sections, prioritize task-based chapters using each task's report_heading as the chapter heading, then include '{risks_heading}' when the evidence warrants it, and finish with '{conclusion_heading}'. "
                 "Do not include background, conversation context, or open questions sections. "
-                "Use inline citations on factual claims. "
-                "{format_instructions}",
+                "Use inline citations on factual claims.",
             ),
         ]
     )
-    model = build_chat_model(settings.synthesis_model, settings, temperature=0)
+    model = build_structured_chat_model(settings.synthesis_model, settings, ReportDraft, temperature=0)
     if model is None:
         return None
 
-    chain = prompt | model | parser
+    chain = prompt | model
     try:
         drafted: ReportDraft = chain.invoke(
             {
@@ -166,7 +163,6 @@ def _maybe_synthesize_single_call(
                 "summary_heading": labels.summary_heading,
                 "risks_heading": labels.risks_heading,
                 "conclusion_heading": labels.conclusion_heading,
-                "format_instructions": parser.get_format_instructions(),
             }
         )
     except Exception:
@@ -321,12 +317,10 @@ def _maybe_synthesize_section_with_llm(
         return None
 
     try:
-        from langchain_core.output_parsers import PydanticOutputParser
         from langchain_core.prompts import ChatPromptTemplate
     except ImportError:
         return None
 
-    parser = PydanticOutputParser(pydantic_object=ReportSectionDraft)
     prompt = ChatPromptTemplate.from_messages(
         [
             (
@@ -347,16 +341,15 @@ def _maybe_synthesize_section_with_llm(
                 "Findings:\n{findings}\n\n"
                 "Sources:\n{sources}\n\n"
                 "Write the section body in {language_name}. "
-                "Return a single markdown section body for this heading only. "
-                "{format_instructions}",
+                "Return a single markdown section body for this heading only.",
             ),
         ]
     )
-    model = build_chat_model(settings.synthesis_model, settings, temperature=0)
+    model = build_structured_chat_model(settings.synthesis_model, settings, ReportSectionDraft, temperature=0)
     if model is None:
         return None
 
-    chain = prompt | model | parser
+    chain = prompt | model
     try:
         drafted: ReportSectionDraft = chain.invoke(
             {
@@ -369,7 +362,6 @@ def _maybe_synthesize_section_with_llm(
                 "findings": payload.findings,
                 "sources": payload.sources,
                 "language_name": labels.language_name,
-                "format_instructions": parser.get_format_instructions(),
             }
         )
     except Exception:
@@ -838,12 +830,10 @@ def _maybe_generate_report_headings_with_llm(
         return None
 
     try:
-        from langchain_core.output_parsers import PydanticOutputParser
         from langchain_core.prompts import ChatPromptTemplate
     except ImportError:
         return None
 
-    parser = PydanticOutputParser(pydantic_object=TaskReportHeadingPlan)
     prompt = ChatPromptTemplate.from_messages(
         [
             (
@@ -860,23 +850,21 @@ def _maybe_generate_report_headings_with_llm(
                 "Current question:\n{question}\n\n"
                 "Report language:\n{language_name}\n\n"
                 "Tasks:\n{tasks}\n\n"
-                "Return one heading per task using the same task_id values.\n"
-                "{format_instructions}",
+                "Return one heading per task using the same task_id values.",
             ),
         ]
     )
-    model = build_chat_model(settings.synthesis_model, settings, temperature=0)
+    model = build_structured_chat_model(settings.synthesis_model, settings, TaskReportHeadingPlan, temperature=0)
     if model is None:
         return None
 
-    chain = prompt | model | parser
+    chain = prompt | model
     try:
         response: TaskReportHeadingPlan = chain.invoke(
             {
                 "question": question,
                 "language_name": labels.language_name,
                 "tasks": _build_heading_prompt_tasks(tasks, findings),
-                "format_instructions": parser.get_format_instructions(),
             }
         )
     except Exception:

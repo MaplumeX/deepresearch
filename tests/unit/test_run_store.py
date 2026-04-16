@@ -65,6 +65,28 @@ class ResearchRunStoreTest(unittest.TestCase):
         self.assertEqual(len(listed_chat), 1)
         self.assertEqual(len(listed_research), 0)
 
+    def test_store_chat_turn_result_persists_provider_message_id(self) -> None:
+        _, turn = self.store.create_chat_turn(
+            conversation_id="chat-2",
+            turn_id="turn-2",
+            request={"question": "Hello"},
+            origin_message_id="message-3",
+            assistant_message_id="message-4",
+            title="Hello",
+        )
+
+        updated = self.store.store_chat_turn_result(
+            turn.turn_id,
+            "Hello back",
+            provider_message_id="resp_456",
+        )
+        assistant_message = self.store.get_message(updated.assistant_message_id)
+
+        self.assertEqual(updated.status, "completed")
+        self.assertIsNotNone(assistant_message)
+        self.assertEqual(assistant_message.content, "Hello back")
+        self.assertEqual(assistant_message.provider_message_id, "resp_456")
+
     def test_create_follow_up_turn_links_to_parent_run(self) -> None:
         initial = self.store.create_run(
             "run-1",

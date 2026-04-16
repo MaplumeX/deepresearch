@@ -9,6 +9,7 @@ from unittest.mock import patch
 from app.chat_manager import ChatConversationManager, InvalidConversationModeError
 from app.config import Settings
 from app.run_manager import ResearchRunManager
+from app.services.chat import ChatReplyResult
 
 
 class ChatConversationManagerTest(unittest.IsolatedAsyncioTestCase):
@@ -46,7 +47,7 @@ class ChatConversationManagerTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_create_conversation_completes_in_background(self) -> None:
         async def fake_generate_reply(_, __, **kwargs):
-            return "Hello back"
+            return ChatReplyResult(text="Hello back", provider_message_id="resp_123")
 
         with patch("app.chat_manager.generate_chat_reply", side_effect=fake_generate_reply):
             conversation, turn = await self.manager.create_conversation({"question": "Hello"})
@@ -59,6 +60,7 @@ class ChatConversationManagerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(refreshed.mode, "chat")
         self.assertEqual(stored_turn.status, "completed")
         self.assertEqual(refreshed.messages[-1].content, "Hello back")
+        self.assertEqual(refreshed.messages[-1].provider_message_id, "resp_123")
 
     async def test_create_message_rejects_research_conversation(self) -> None:
         async def fake_run_research(_, __, ___):

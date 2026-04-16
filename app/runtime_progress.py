@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from langchain_core.runnables import RunnableConfig
+
 
 ProgressListener = Callable[[dict[str, Any]], None]
 
@@ -22,7 +24,7 @@ def unregister_progress_listener(run_id: str, listener: ProgressListener | None)
     _LISTENERS.pop(run_id, None)
 
 
-def emit_progress(config: dict[str, Any] | None, payload: dict[str, Any]) -> None:
+def emit_progress(config: RunnableConfig | None, payload: dict[str, Any]) -> None:
     run_id = _run_id_from_config(config)
     if run_id is None:
         return
@@ -32,7 +34,7 @@ def emit_progress(config: dict[str, Any] | None, payload: dict[str, Any]) -> Non
     listener(payload)
 
 
-def _run_id_from_config(config: dict[str, Any] | None) -> str | None:
+def _run_id_from_config(config: RunnableConfig | None) -> str | None:
     if not isinstance(config, dict):
         return None
     configurable = config.get("configurable")

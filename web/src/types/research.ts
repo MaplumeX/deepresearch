@@ -41,6 +41,7 @@ export type ConversationMessage = {
   conversation_id: string
   role: 'user' | 'assistant'
   content: string
+  provider_message_id?: string | null
   run_id: string | null
   parent_message_id: string | null
   created_at: string

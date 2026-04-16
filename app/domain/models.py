@@ -266,6 +266,7 @@ class ConversationMessage(BaseModel):
     conversation_id: str
     role: ConversationMessageRole
     content: str
+    provider_message_id: str | None = None
     run_id: str | None = None
     parent_message_id: str | None = None
     created_at: str

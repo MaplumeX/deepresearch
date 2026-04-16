@@ -5,7 +5,7 @@ from typing import Any
 from app.config import Settings
 from app.domain.models import ResearchGap, ResearchPlan, ResearchTask
 from app.services.conversation_memory import build_contextual_brief, format_memory_for_prompt
-from app.services.llm import build_chat_model, can_use_llm
+from app.services.llm import build_structured_chat_model, can_use_llm
 from app.services.research_quality import format_gaps_for_prompt, normalize_gaps, sort_gaps
 
 
@@ -70,12 +70,10 @@ def _maybe_plan_with_llm(
         return None
 
     try:
-        from langchain_core.output_parsers import PydanticOutputParser
         from langchain_core.prompts import ChatPromptTemplate
     except ImportError:
         return None
 
-    parser = PydanticOutputParser(pydantic_object=ResearchPlan)
     memory_sections = format_memory_for_prompt(memory)
     prompt = ChatPromptTemplate.from_messages(
         [
@@ -94,16 +92,15 @@ def _maybe_plan_with_llm(
                 "Recent 5 turns:\n{recent_turns}\n\n"
                 "Known facts from older turns:\n{key_facts}\n\n"
                 "Open questions from older turns:\n{open_questions}\n\n"
-                "Open gaps in the current run:\n{gaps}\n\n"
-                "{format_instructions}",
+                "Open gaps in the current run:\n{gaps}",
             ),
         ]
     )
-    model = build_chat_model(settings.planner_model, settings, temperature=0)
+    model = build_structured_chat_model(settings.planner_model, settings, ResearchPlan, temperature=0)
     if model is None:
         return None
 
-    chain = prompt | model | parser
+    chain = prompt | model
     response: ResearchPlan = chain.invoke(
         {
             "question": question,
@@ -113,7 +110,6 @@ def _maybe_plan_with_llm(
             "open_questions": memory_sections["open_questions"],
             "gaps": format_gaps_for_prompt(gaps),
             "max_tasks": max_tasks,
-            "format_instructions": parser.get_format_instructions(),
         }
     )
     return response.tasks[:max_tasks]
