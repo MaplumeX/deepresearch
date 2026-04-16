@@ -1,17 +1,19 @@
 from __future__ import annotations
 
-import re
-
 from pydantic import BaseModel, Field
 
 from app.config import Settings, get_settings
 from app.domain.models import QueryIntent, ResearchQuery, ResearchRequest, ResearchTask
-from app.services.llm import build_structured_chat_model, can_use_llm
+from app.services.llm import (
+    LLMInvocationError,
+    LLMOutputInvalidError,
+    build_structured_chat_model,
+    ensure_planning_llm_ready,
+)
 
 
 _QUERY_LIMIT = 6
 _MIN_QUERY_COUNT = 3
-_CJK_PATTERN = re.compile(r"[\u4e00-\u9fff]")
 _INTENT_PRIORITY: dict[QueryIntent, int] = {
     "official": 0,
     "recent": 1,
@@ -37,47 +39,26 @@ def rewrite_queries(
     settings: Settings | None = None,
 ) -> list[ResearchQuery]:
     effective_settings = settings or get_settings()
-    fallback_queries = _rewrite_queries_fallback(task, request)
-    planned = _maybe_rewrite_queries_with_llm(task, request, effective_settings)
-    if planned is None:
-        return fallback_queries
-    return _finalize_queries(planned, fallback_queries)
+    ensure_planning_llm_ready(effective_settings)
+
+    planned = _rewrite_queries_with_llm(task, request, effective_settings)
+    queries = _dedupe_queries(planned)[:_QUERY_LIMIT]
+    if len(queries) < _MIN_QUERY_COUNT:
+        raise LLMOutputInvalidError(
+            f"Query rewrite returned {len(queries)} distinct queries; expected at least {_MIN_QUERY_COUNT}.",
+        )
+    return queries
 
 
-def _rewrite_queries_fallback(task: ResearchTask, request: ResearchRequest) -> list[ResearchQuery]:
-    base_question = _normalize_space(task.question)
-    full_question = _normalize_space(request.question)
-    combined = _normalize_space(f"{request.question} {task.title}")
-    scope = _normalize_space(request.scope or "")
-    localized_terms = _intent_terms(request)
-
-    candidates = [
-        _query_candidate(base_question, "baseline"),
-        _query_candidate(f"{base_question} {localized_terms['official']}", "official"),
-        _query_candidate(f"{base_question} {localized_terms['recent']}", "recent"),
-        _query_candidate(f"{base_question} {localized_terms['example']}", "example"),
-        _query_candidate(f"{base_question} {localized_terms['risk']}", "risk"),
-        _query_candidate(f"{full_question} {localized_terms['comparison']}", "comparison"),
-        _query_candidate(combined, "baseline", priority=6),
-    ]
-    if scope:
-        candidates.append(_query_candidate(f"{base_question} {scope}", "baseline", priority=7))
-
-    return _dedupe_queries(candidates)[:_QUERY_LIMIT]
-
-
-def _maybe_rewrite_queries_with_llm(
+def _rewrite_queries_with_llm(
     task: ResearchTask,
     request: ResearchRequest,
     settings: Settings,
-) -> list[ResearchQuery] | None:
-    if not settings.enable_llm_planning or not can_use_llm(settings):
-        return None
-
+) -> list[ResearchQuery]:
     try:
         from langchain_core.prompts import ChatPromptTemplate
-    except ImportError:
-        return None
+    except ImportError as exc:
+        raise LLMInvocationError("Query rewrite dependencies are not installed.") from exc
 
     prompt = ChatPromptTemplate.from_messages(
         [
@@ -101,7 +82,7 @@ def _maybe_rewrite_queries_with_llm(
     )
     model = build_structured_chat_model(settings.planner_model, settings, QueryRewritePlan, temperature=0)
     if model is None:
-        return None
+        raise LLMInvocationError("Query rewrite model could not be initialized.")
 
     chain = prompt | model
     try:
@@ -113,8 +94,8 @@ def _maybe_rewrite_queries_with_llm(
                 "scope": request.scope or "None",
             }
         )
-    except Exception:
-        return None
+    except Exception as exc:
+        raise LLMInvocationError("Query rewrite failed.") from exc
 
     return [
         ResearchQuery(
@@ -124,19 +105,6 @@ def _maybe_rewrite_queries_with_llm(
         )
         for item in response.queries
     ]
-
-
-def _finalize_queries(
-    planned: list[ResearchQuery],
-    fallback_queries: list[ResearchQuery],
-) -> list[ResearchQuery]:
-    queries = _dedupe_queries(planned)[:_QUERY_LIMIT]
-    if len(queries) >= _MIN_QUERY_COUNT:
-        return queries
-
-    seen = {query.query.casefold() for query in queries}
-    combined = queries + [item for item in fallback_queries if item.query.casefold() not in seen]
-    return combined[:_QUERY_LIMIT]
 
 
 def _dedupe_queries(candidates: list[ResearchQuery]) -> list[ResearchQuery]:
@@ -153,32 +121,6 @@ def _dedupe_queries(candidates: list[ResearchQuery]) -> list[ResearchQuery]:
         queries.append(candidate.model_copy(update={"query": normalized}))
     queries.sort(key=lambda item: (item.priority, item.query.casefold()))
     return queries
-
-
-def _query_candidate(query: str, intent: QueryIntent, *, priority: int | None = None) -> ResearchQuery:
-    return ResearchQuery(
-        query=query,
-        intent=intent,
-        priority=_INTENT_PRIORITY[intent] if priority is None else priority,
-    )
-
-
-def _intent_terms(request: ResearchRequest) -> dict[str, str]:
-    if request.output_language == "zh-CN" or _CJK_PATTERN.search(f"{request.question} {request.scope or ''}"):
-        return {
-            "official": "官方 一手 规范 文档",
-            "recent": "最新 2025 2026 现状",
-            "example": "案例 数据 实践",
-            "risk": "风险 局限 失败 问题",
-            "comparison": "对比 差异 取舍",
-        }
-    return {
-        "official": "official primary source documentation",
-        "recent": "latest 2025 2026 current",
-        "example": "case study examples data",
-        "risk": "risks limitations failures",
-        "comparison": "comparison tradeoffs alternatives",
-    }
 
 
 def _normalize_space(value: str) -> str:

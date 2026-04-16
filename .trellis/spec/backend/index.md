@@ -53,7 +53,7 @@ Before closing backend deep research work:
 1. Check state changes stay inside graph nodes and pure logic stays in services
 2. Check external side effects stay inside tools or runtime adapters
 3. Check reports only cite source ids that exist in `sources`
-4. Check deterministic fallback still works when LLM credentials are absent
+4. Check research/chat entrypoints reject requests when required LLM capabilities are unavailable
 5. Check pure service logic has unit coverage and the package compiles
 
 **Language**: All documentation should be written in **English**.

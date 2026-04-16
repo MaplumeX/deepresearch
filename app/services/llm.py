@@ -5,8 +5,62 @@ from typing import Any
 from app.config import Settings
 
 
+class LLMServiceError(RuntimeError):
+    """Base class for LLM-related service failures."""
+
+
+class LLMNotReadyError(LLMServiceError):
+    """Raised when a workflow requires an LLM but the runtime is not ready."""
+
+
+class LLMInvocationError(LLMServiceError):
+    """Raised when an LLM call fails and the workflow should stop."""
+
+
+class LLMOutputInvalidError(LLMServiceError):
+    """Raised when an LLM response does not satisfy the expected contract."""
+
+
+class InsufficientEvidenceError(LLMServiceError):
+    """Raised when synthesis cannot continue with the available evidence."""
+
+
 def can_use_llm(settings: Settings) -> bool:
     return bool(settings.llm_api_key or settings.llm_base_url)
+
+
+def ensure_chat_llm_ready(settings: Settings) -> None:
+    if can_use_llm(settings):
+        return
+    raise LLMNotReadyError(
+        "Chat mode requires a configured LLM. Set `LLM_API_KEY` or `OPENAI_API_KEY`, "
+        "or provide a compatible `LLM_BASE_URL`.",
+    )
+
+
+def ensure_planning_llm_ready(settings: Settings) -> None:
+    if not can_use_llm(settings):
+        raise LLMNotReadyError(
+            "Research mode requires a configured LLM. Set `LLM_API_KEY` or `OPENAI_API_KEY`, "
+            "or provide a compatible `LLM_BASE_URL`.",
+        )
+    if not settings.enable_llm_planning:
+        raise LLMNotReadyError("Research mode requires `ENABLE_LLM_PLANNING=true`.")
+
+
+def ensure_synthesis_llm_ready(settings: Settings) -> None:
+    if not can_use_llm(settings):
+        raise LLMNotReadyError(
+            "Research mode requires a configured LLM. Set `LLM_API_KEY` or `OPENAI_API_KEY`, "
+            "or provide a compatible `LLM_BASE_URL`.",
+        )
+    if not settings.enable_llm_synthesis:
+        raise LLMNotReadyError("Research mode requires `ENABLE_LLM_SYNTHESIS=true`.")
+
+
+def ensure_research_llm_ready(settings: Settings) -> None:
+    ensure_planning_llm_ready(settings)
+    ensure_synthesis_llm_ready(settings)
 
 
 def build_chat_model(

@@ -34,6 +34,7 @@ from app.services.conversation_memory import (
     empty_memory_payload,
     rebuild_persisted_memory,
 )
+from app.services.llm import ensure_research_llm_ready
 
 
 TERMINAL_RUN_STATUSES = {"completed", "failed", "interrupted"}
@@ -215,6 +216,7 @@ class ResearchRunManager:
         parent_run_id: str | None,
         memory_context: dict | None,
     ) -> tuple[ResearchConversationDetail, ResearchRunDetail]:
+        ensure_research_llm_ready(self._settings)
         run_id = uuid4().hex
         origin_message_id = uuid4().hex
         assistant_message_id = uuid4().hex

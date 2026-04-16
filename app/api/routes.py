@@ -27,9 +27,14 @@ from app.run_manager import (
     ResearchRunManager,
     RunNotFoundError,
 )
+from app.services.llm import LLMNotReadyError
 
 
 router = APIRouter()
+
+
+def _raise_service_unavailable(exc: Exception) -> None:
+    raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 def get_run_manager(request: Request) -> ResearchRunManager:
@@ -96,21 +101,27 @@ async def create_any_conversation(
 ) -> ConversationMutationResponse:
     if payload.mode == "research":
         manager = get_run_manager(http_request)
-        conversation, run = await manager.create_conversation(
-            ResearchConversationTurnRequest(
-                question=payload.question,
-                scope=payload.scope,
-                output_language=payload.output_language or "zh-CN",
-                max_iterations=payload.max_iterations or get_settings().default_max_iterations,
-                max_parallel_tasks=payload.max_parallel_tasks or get_settings().default_max_parallel_tasks,
-            ).model_dump(exclude_none=True)
-        )
+        try:
+            conversation, run = await manager.create_conversation(
+                ResearchConversationTurnRequest(
+                    question=payload.question,
+                    scope=payload.scope,
+                    output_language=payload.output_language or "zh-CN",
+                    max_iterations=payload.max_iterations or get_settings().default_max_iterations,
+                    max_parallel_tasks=payload.max_parallel_tasks or get_settings().default_max_parallel_tasks,
+                ).model_dump(exclude_none=True)
+            )
+        except LLMNotReadyError as exc:
+            _raise_service_unavailable(exc)
         return ConversationMutationResponse(conversation=conversation, run=run)
 
     manager = get_chat_manager(http_request)
-    conversation, turn = await manager.create_conversation(
-        {"question": payload.question}
-    )
+    try:
+        conversation, turn = await manager.create_conversation(
+            {"question": payload.question}
+        )
+    except LLMNotReadyError as exc:
+        _raise_service_unavailable(exc)
     return ConversationMutationResponse(conversation=conversation, turn=turn)
 
 
@@ -143,6 +154,8 @@ async def create_any_conversation_message(
             )
         except InvalidRunStateError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except LLMNotReadyError as exc:
+            _raise_service_unavailable(exc)
         return ConversationMutationResponse(conversation=updated_conversation, run=run)
 
     manager = get_chat_manager(http_request)
@@ -153,13 +166,18 @@ async def create_any_conversation_message(
         )
     except InvalidConversationModeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except LLMNotReadyError as exc:
+        _raise_service_unavailable(exc)
     return ConversationMutationResponse(conversation=updated_conversation, turn=turn)
 
 
 @router.post("/api/research/runs", response_model=RunDetailResponse)
 async def create_run(http_request: Request, payload: RunRequest) -> RunDetailResponse:
     manager = get_run_manager(http_request)
-    run = await manager.create_run(payload.model_dump(exclude_none=True))
+    try:
+        run = await manager.create_run(payload.model_dump(exclude_none=True))
+    except LLMNotReadyError as exc:
+        _raise_service_unavailable(exc)
     return RunDetailResponse(run=run)
 
 

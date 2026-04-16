@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import unittest
 from unittest.mock import patch
 
@@ -7,6 +8,7 @@ from langchain_core.messages import AIMessage, AIMessageChunk
 
 from app.config import Settings
 from app.domain.models import ConversationMessage, ResearchConversationDetail
+from app.services.llm import LLMNotReadyError
 from app.services.chat import ChatReplyResult, generate_chat_reply
 
 
@@ -42,11 +44,7 @@ class ChatServiceTest(unittest.IsolatedAsyncioTestCase):
             enable_llm_planning=False,
             enable_llm_synthesis=False,
         )
-
-    async def test_generate_chat_reply_uses_native_text_streaming_and_preserves_response_id(self) -> None:
-        model = _FakeStreamingModel()
-        streamed_parts: list[tuple[str, str | None]] = []
-        conversation = ResearchConversationDetail(
+        self.conversation = ResearchConversationDetail(
             conversation_id="conversation-1",
             mode="chat",
             title="Hello",
@@ -85,10 +83,20 @@ class ChatServiceTest(unittest.IsolatedAsyncioTestCase):
             runs=[],
         )
 
+    async def test_generate_chat_reply_requires_llm(self) -> None:
+        with self.assertRaises(LLMNotReadyError):
+            await generate_chat_reply(
+                replace(self.settings, llm_api_key=None),
+                self.conversation,
+            )
+
+    async def test_generate_chat_reply_uses_native_text_streaming_and_preserves_response_id(self) -> None:
+        model = _FakeStreamingModel()
+        streamed_parts: list[tuple[str, str | None]] = []
         with patch("app.services.chat.build_chat_model", return_value=model) as build_model:
             reply = await generate_chat_reply(
                 self.settings,
-                conversation,
+                self.conversation,
                 on_chunk=lambda content, provider_id: streamed_parts.append((content, provider_id)),
             )
 

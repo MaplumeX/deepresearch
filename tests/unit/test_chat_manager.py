@@ -20,7 +20,7 @@ class ChatConversationManagerTest(unittest.IsolatedAsyncioTestCase):
             app_name="test",
             planner_model="test-model",
             synthesis_model="test-model",
-            llm_api_key=None,
+            llm_api_key="dummy-key",
             llm_base_url=None,
             tavily_api_key=None,
             brave_api_key=None,
@@ -32,8 +32,8 @@ class ChatConversationManagerTest(unittest.IsolatedAsyncioTestCase):
             default_max_parallel_tasks=3,
             search_max_results=3,
             require_human_review=False,
-            enable_llm_planning=False,
-            enable_llm_synthesis=False,
+            enable_llm_planning=True,
+            enable_llm_synthesis=True,
         )
         self.manager = ChatConversationManager(self.settings)
         self.research_manager = ResearchRunManager(self.settings)

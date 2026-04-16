@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from app.config import Settings
 from app.domain.models import AcquiredContent, ResearchQuery, ResearchRequest, ResearchTask, SearchHit, SourceDocument
+from app.services.llm import LLMNotReadyError
 from app.services.research_worker import (
     build_task_evidence,
     filter_acquired_contents,
@@ -46,11 +48,17 @@ class ResearchWorkerServiceTest(unittest.TestCase):
         )
 
     def test_rewrite_queries_deduplicates_and_limits_results(self) -> None:
-        queries = rewrite_queries(self.task, self.request, settings=self.settings)
-        self.assertLessEqual(len(queries), 6)
-        self.assertEqual(len(queries), len(set(query.query.casefold() for query in queries)))
-        self.assertTrue(any("evidence scoring" in query.query.casefold() for query in queries))
-        self.assertTrue(any(query.intent == "official" for query in queries))
+        with self.assertRaises(LLMNotReadyError):
+            rewrite_queries(self.task, self.request, settings=self.settings)
+
+    def test_rewrite_queries_returns_underlying_service_output(self) -> None:
+        expected = [ResearchQuery(query="official evidence scoring", intent="official", priority=0)]
+
+        with patch("app.services.research_worker._rewrite_queries", return_value=expected) as rewrite_mock:
+            actual = rewrite_queries(self.task, self.request, settings=self.settings)
+
+        rewrite_mock.assert_called_once_with(self.task, self.request, settings=self.settings)
+        self.assertEqual(actual, expected)
 
     def test_select_queries_for_budget_prefers_higher_priority_intents(self) -> None:
         selected = select_queries_for_budget(
@@ -198,31 +206,39 @@ class ResearchWorkerServiceTest(unittest.TestCase):
         self.assertEqual(contents, [])
 
     def test_build_task_evidence_scores_relevant_sources(self) -> None:
-        findings, sources = build_task_evidence(
-            self.task,
-            [
-                SourceDocument(
-                    source_id="S1",
-                    url="https://example.com/research-worker",
-                    title="Research worker evidence scoring rollout",
-                    content=(
-                        "The research worker evidence scoring rollout improved confidence by 25 percent "
-                        "and reduced weak citations across the report."
-                    ),
-                    fetched_at="2026-04-13T00:00:00+00:00",
-                    providers=["tavily", "brave"],
-                    acquisition_method="provider_raw_content",
-                )
-            ],
-            settings=self.settings,
+        source = SourceDocument(
+            source_id="S1",
+            url="https://example.com/research-worker",
+            title="Research worker evidence scoring rollout",
+            content=(
+                "The research worker evidence scoring rollout improved confidence by 25 percent "
+                "and reduced weak citations across the report."
+            ),
+            fetched_at="2026-04-13T00:00:00+00:00",
+            providers=["tavily", "brave"],
+            acquisition_method="provider_raw_content",
         )
-        self.assertGreaterEqual(len(findings), 1)
-        self.assertEqual(len(sources), 1)
-        self.assertEqual(findings[0].source_id, "S1")
-        self.assertGreater(findings[0].relevance_score, 0.2)
-        self.assertGreater(findings[0].confidence, 0.3)
-        self.assertIn("research worker evidence scoring rollout", findings[0].claim.casefold())
-        self.assertIn(findings[0].evidence_type, {"fact", "statistic", "example"})
+
+        with self.assertRaises(LLMNotReadyError):
+            build_task_evidence(self.task, [source], settings=self.settings)
+
+    def test_build_task_evidence_returns_underlying_service_output(self) -> None:
+        source = SourceDocument(
+            source_id="S1",
+            url="https://example.com/research-worker",
+            title="Research worker evidence scoring rollout",
+            content="Evidence scoring improves confidence.",
+            fetched_at="2026-04-13T00:00:00+00:00",
+            providers=["tavily"],
+            acquisition_method="provider_raw_content",
+        )
+        expected = ([], [source])
+
+        with patch("app.services.research_worker._build_task_evidence", return_value=expected) as evidence_mock:
+            actual = build_task_evidence(self.task, [source], settings=self.settings)
+
+        evidence_mock.assert_called_once_with(self.task, [source], settings=self.settings)
+        self.assertEqual(actual, expected)
 
 
 if __name__ == "__main__":

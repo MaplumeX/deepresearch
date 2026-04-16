@@ -308,7 +308,7 @@ Compact payload rules:
   `source_id`, `title`, `url`, `snippet`, `providers`, `source_role`
 - `CompactPayload.findings[*]` must contain only:
   `task_id`, `source_id`, `claim`, `snippet`, `evidence_type`, `source_role`, `confidence`, `relevance_score`, `title`, `url`
-- Raw `sources[*].content` must not be passed through to the prompt as a top-level field. If no snippet exists, a trimmed fallback snippet may be derived from content inside `_build_compact_sources()`.
+- Raw `sources[*].content` must not be passed through to the prompt as a top-level field. If no snippet exists, a trimmed snippet may be derived from content inside `_build_compact_sources()`.
 
 Localized fixed-label rules:
 
@@ -326,15 +326,15 @@ Default report-structure rules:
 
 - Final report defaults must be:
   localized summary section
-  zero or more rubric-based chapters derived from `coverage_requirements` when present and supported by evidence; otherwise task-based chapters derived from `task.report_heading` when present, otherwise normalized from `task.title`
+  zero or more rubric-based chapters derived from `coverage_requirements` when present and supported by evidence; otherwise task-based chapters derived from `task.report_heading`
   optional localized risk section when `evidence_type in {"risk", "limitation"}` and no rubric chapter already reserves the risk/tradeoff dimension
   localized conclusion section
   localized references section
 - `synthesize_report()` must not inject `Conversation Context` or `Open Questions` into the final default report output.
-- Rubric chapter ordering must follow `coverage_requirements`; task chapter ordering remains the fallback when no rubric chapters are emitted; both paths still end with risk section when needed, then conclusion.
+- Rubric chapter ordering must follow `coverage_requirements`; task chapter ordering is used when no rubric chapters are emitted; both paths still end with risk section when needed, then conclusion.
 - `assign_report_headings()` is the only allowed path for generating `task.report_heading` values before report synthesis.
 - `task.title` remains the internal execution title for query rewriting, evidence extraction, and worker diagnostics; synthesis-only heading generation must not overwrite it.
-- Task chapter headings may be normalized into report-style headings by stripping imperative prefixes such as `Assess`, `Evaluate`, `Recover`, `评估`, `分析` when no valid `report_heading` is available.
+- Invalid or duplicate generated report headings must fail the synthesis path instead of silently falling back to normalized task titles.
 
 Routing rules:
 
@@ -342,22 +342,22 @@ Routing rules:
 - If the compact payload exceeds the soft limit or record-count limits, `synthesize_report()` must switch to `_maybe_synthesize_multi_stage()`.
 - Multi-stage synthesis must split by semantic report sections first, not by arbitrary character ranges. Current default section groups are:
   rubric-based chapters when coverage requirements are available, otherwise task-based chapters, then localized risk section when needed, then localized conclusion section
-- If a section chunk still exceeds `settings.synthesis_hard_char_limit`, that chunk must skip the LLM call and fall back to deterministic section rendering.
+- If a section chunk still exceeds `settings.synthesis_hard_char_limit`, synthesis must fail explicitly instead of rendering a deterministic section.
 - `build_structured_report()` still receives the original `sources` and `findings` so citation auditing and source cards remain based on canonical state, not the compact prompt payload.
 
 #### Validation & Error Matrix
 
 | Condition | Validation point | Behavior |
 |-----------|------------------|----------|
-| `findings` is empty | `synthesize_report()` | skip LLM synthesis and use deterministic fallback report |
+| `findings` is empty | `synthesize_report()` | raise `InsufficientEvidenceError` |
 | compact payload exceeds `SYNTHESIS_SOFT_CHAR_LIMIT` or item-count limits | `_should_keep_payload_together()` | skip single-call synthesis and route to `_maybe_synthesize_multi_stage()` |
-| staged chunk exceeds `SYNTHESIS_HARD_CHAR_LIMIT` | `_can_invoke_payload()` | do not call the LLM for that chunk; render the section with deterministic fallback |
-| LLM import or invoke fails during single-call synthesis | `_maybe_synthesize_single_call()` | return `None`; caller must continue to staged synthesis or deterministic fallback |
-| LLM import or invoke fails during staged synthesis | `_maybe_synthesize_section_with_llm()` | return `None`; caller must render that section deterministically |
+| staged chunk exceeds `SYNTHESIS_HARD_CHAR_LIMIT` | `_can_invoke_payload()` | raise `LLMOutputInvalidError` for oversized synthesis input |
+| LLM import or invoke fails during single-call synthesis | `_maybe_synthesize_single_call()` | raise `LLMInvocationError`; caller may retry with staged LLM synthesis only |
+| LLM import or invoke fails during staged synthesis | `_maybe_synthesize_section_with_llm()` | raise `LLMInvocationError`; caller must fail the run |
 | compact source payload includes raw `content` field | `tests/unit/test_synthesis.py::test_compact_payload_excludes_raw_source_content` | fail the unit test; this shape is forbidden |
 | `output_language` is `zh-CN` or omitted | `get_report_labels()` | use Chinese fixed report labels for title, summary, risk, conclusion, and references |
 | `output_language` is `en` | `get_report_labels()` | use English fixed report labels for title, summary, risk, conclusion, and references |
-| generated `task.report_heading` is empty, duplicates another task heading, or collides with a fixed report section heading | `assign_report_headings()` | fall back to the deterministic normalized heading for that task and disambiguate if needed |
+| generated `task.report_heading` is empty, duplicates another task heading, or collides with a fixed report section heading | `assign_report_headings()` | raise `LLMOutputInvalidError` |
 
 Structured report validation and error matrix:
 
@@ -380,7 +380,7 @@ Good / Base / Bad cases for this contract:
 - Base:
   Human review edits markdown via `edited_report`; `human_review()` accepts the markdown and rebuilds `final_structured_report` with `derive_structured_report()` so the final payload is still structured.
 - Base:
-  single-call synthesis is too large, so `_maybe_synthesize_multi_stage()` generates task/risk/conclusion drafts and deterministic merge logic assembles the final report while preserving citations.
+  single-call synthesis is too large, so `_maybe_synthesize_multi_stage()` generates task/risk/conclusion drafts and structured merge logic assembles the final report while preserving citations.
 - Base:
   human-edited markdown still uses `Executive Summary`; `derive_structured_report()` must treat it as the summary section during rebuild.
 - Bad:
@@ -1008,17 +1008,17 @@ REQUIRE_HUMAN_REVIEW     optional bool, defaults to false
 | Boundary | Input | Validation | Failure Behavior |
 |----------|-------|------------|------------------|
 | API -> ingest_request | `question`, limits, language | `ResearchRequest` validates non-empty question and bounded limits | Raise validation error before graph execution |
-| create conversation API -> manager | validated create payload with explicit `mode` | dispatch to research or chat manager; create conversation, user message, assistant placeholder, and queued run/turn inside the same persistence boundary | return 500 if storage fails before launch |
+| create conversation API -> manager | validated create payload with explicit `mode` | dispatch to research or chat manager only after LLM readiness passes; create conversation, user message, assistant placeholder, and queued run/turn inside the same persistence boundary | return 503 when required LLM capabilities are unavailable; return 500 if storage fails after readiness passes |
 | generic conversation list/detail API -> store | `conversation_id` optional | return both chat and research conversations with explicit `mode`; research details include `runs`, chat details return an empty `runs` list | return 404 when target conversation is missing |
 | follow-up message API -> manager | `conversation_id`, question, optional `parent_run_id` | conversation must exist; conversation `mode` decides whether to call research or chat manager; explicit `parent_run_id` must belong to the same research conversation | return 404 for missing conversation; return 409 when source run is still active, belongs to another conversation, or the mode-specific manager rejects the request |
 | follow-up manager -> memory builder | conversation detail, optional persisted conversation memory | build memory from the recent 5 runs; if the requested parent run falls outside the latest 5, force it into the window and recompute older summary on the fly | fall back to deterministic summary rebuild instead of dropping memory context |
 | run store -> detail/list API | `run_id` or conversation/list query | run must exist for detail/event routes; conversation must exist for conversation routes | return 404 when target run or conversation is missing |
 | ingest_request -> graph state | request payload + memory payload | Normalize integer budgets before Pydantic validation and normalize memory shape into explicit `rolling_summary/recent_turns/key_facts/open_questions` keys | Invalid request values are clamped first, then validated; missing memory fields become empty defaults |
-| planner -> tasks | question + gaps + memory | Limit task count to `max_parallel_tasks`; assign iteration-scoped task ids such as `iter-2-task-1`; emit `coverage_requirements` and normalized task `coverage_tags`; use memory only as continuity context, never as evidence | Fall back to deterministic task plan plus default coverage rubric when the OpenAI-compatible model path is unavailable |
-| task -> worker query rewrite | task question + request scope | Build at most 6 deduplicated queries for a single task, each with intent + priority metadata; worker execution must respect `task.query_budget` | Fall back to deterministic query set without LLM |
+| planner -> tasks | question + gaps + memory | Limit task count to `max_parallel_tasks`; assign iteration-scoped task ids such as `iter-2-task-1`; emit `coverage_requirements` and normalized task `coverage_tags`; use memory only as continuity context, never as evidence | fail the run when the planner LLM is unavailable or returns no valid tasks / coverage rubric |
+| task -> worker query rewrite | task question + request scope | Build at most 6 deduplicated queries for a single task, each with intent + priority metadata; worker execution must respect `task.query_budget` | fail the task when the query-rewrite LLM is unavailable or returns fewer than 3 distinct queries |
 | search -> acquire content | provider search hits | Merge duplicate URLs, keep provider metadata, require non-empty URL | Skip invalid hits and tolerate per-provider search failures |
 | acquire content -> extract | provider search hits + ranked-hit fetch budget | Select at most `task.fetch_budget` ranked hits for acquisition; then try provider raw content first, then HTTP fetch, then snippet fallback | Skip unusable content and continue with any surviving acquisition path |
-| extract -> evidence scoring | normalized source documents | Drop short or weak pages, choose a focused snippet, and compute bounded `relevance_score` / `confidence` | Skip sources that do not meet the deterministic relevance floor |
+| extract -> evidence extraction | normalized source documents | build neutral candidate snippets, require the LLM to return verbatim-supported snippets, and keep only validated evidence items | fail the task when the extraction LLM is unavailable or returns invalid unsupported evidence |
 | worker -> task outcome | task, queries, ranked hits, acquired contents, kept sources, evidence | derive deterministic quality diagnostics from counts and host diversity | never throw because evidence is weak; emit `quality_status=weak/failed` and failure reasons instead |
 | merge -> gap_check | deduplicated findings + `task_outcomes` + current task list + planner coverage rubric | create structured task-local gaps, evaluate global coverage requirements, map retryable gaps to `expand_queries` or `expand_fetch`, and only replan when no targeted retry path remains | if retryable tasks remain and iteration budget exists, route back to `dispatch_tasks`; if only global coverage gaps remain and budget exists, replan; if budget is exhausted, continue to synthesis with warnings and force human review |
 | synthesize -> audit | markdown report + memory | Require citations to map to existing `sources`; memory may appear only in a background section and may not introduce citations | Set warning and require review when unknown citation ids exist |
@@ -1053,14 +1053,14 @@ REQUIRE_HUMAN_REVIEW     optional bool, defaults to false
 
 #### Base
 - No OpenAI-compatible credentials are configured.
-- Planner and synthesizer fall back to deterministic logic while still receiving conversation memory.
-- Worker query rewrite, ranking, filtering, and scoring still run deterministically without model access.
+- Research and chat create endpoints reject the request before queuing background work.
+- Worker query rewrite, ranking, filtering, and scoring still run deterministically inside `research_worker`, but they are no longer reachable without the required top-level LLM path.
 - One search provider may be unavailable and the graph still completes from the surviving provider or with an empty-evidence report.
 - Legacy string-shaped `gaps` in older run snapshots still degrade to readable open questions in conversation memory.
 - Installed `aiosqlite` may omit `Connection.is_alive()` while checkpoint persistence still succeeds through the runtime compatibility shim.
 - Browser refreshes during a running job and the frontend restores state via detail API before reopening SSE.
 - Conversations with 5 or fewer runs persist an empty `rolling_summary` while still providing explicit recent turns.
-- Chat mode may run without model credentials; the chat manager returns a deterministic fallback assistant reply instead of failing the request during initialization.
+- Chat mode requires model credentials; missing readiness fails at the create endpoint before a chat turn is persisted.
 
 #### Bad
 - Empty `question`.
@@ -1084,12 +1084,12 @@ REQUIRE_HUMAN_REVIEW     optional bool, defaults to false
 - Unit test `app/services/research_quality.py` for task diagnostics, structured gap mapping, and quality-gate decisions.
 - Unit test `app/tools/extract.py` for provider-aware content normalization.
 - Unit test `app/graph/nodes/gap_check.py` for structured-gap output, replan routing, and review-on-budget-exhaustion behavior.
-- Unit test deterministic planning fallback when model credentials are absent.
+- Unit test research create paths reject missing LLM readiness before queueing work.
 - Unit test `app/services/conversation_memory.py` for recent-5 windowing, parent-run inclusion, digest building, persisted older-summary generation, and structured-gap open-question extraction.
 - Unit test `app/run_store.py` for persisted conversation threading, assistant message synchronization, and legacy linkage backfill.
 - Unit test `app/run_store.py` for `conversation_memory` read/write behavior.
 - Unit test `app/run_manager.py` for async lifecycle transitions, follow-up turn creation, memory injection, and resume rules.
-- Unit test deterministic synthesis fallback with conversation memory present and no extra citations.
+- Unit test synthesis fails explicitly when findings are empty or report headings are invalid.
 - Unit test `app/runtime.py` for sqlite checkpoint compatibility when `aiosqlite.Connection.is_alive()` is absent.
 - Syntax compilation for `app/` and `tests/`.
 

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import unittest
+from unittest.mock import patch
 
 from app.config import Settings
-from app.domain.models import ResearchRequest, ResearchTask
+from app.domain.models import ResearchQuery, ResearchRequest, ResearchTask
+from app.services.llm import LLMNotReadyError, LLMOutputInvalidError
 from app.services.query_rewrite import rewrite_queries
 
 
@@ -39,15 +42,35 @@ class QueryRewriteServiceTest(unittest.TestCase):
             question="Improve deep research breadth and coverage strategy",
         )
 
-    def test_fallback_query_rewrite_covers_multiple_intents(self) -> None:
-        queries = rewrite_queries(self.task, self.request, settings=self.settings)
+    def test_query_rewrite_requires_llm(self) -> None:
+        with self.assertRaises(LLMNotReadyError):
+            rewrite_queries(self.task, self.request, settings=self.settings)
 
-        self.assertGreaterEqual(len(queries), 3)
-        self.assertLessEqual(len(queries), 6)
-        self.assertEqual(len(queries), len(set(query.query.casefold() for query in queries)))
-        self.assertTrue(any(query.intent == "official" for query in queries))
-        self.assertTrue(any(query.intent == "recent" for query in queries))
-        self.assertTrue(any(query.intent == "risk" for query in queries))
+    def test_query_rewrite_requires_minimum_distinct_queries(self) -> None:
+        ready_settings = replace(self.settings, llm_api_key="dummy-key", enable_llm_planning=True)
+        with patch(
+            "app.services.query_rewrite._rewrite_queries_with_llm",
+            return_value=[
+                ResearchQuery(query="same query", intent="baseline", priority=2),
+                ResearchQuery(query="same query", intent="recent", priority=1),
+            ],
+        ):
+            with self.assertRaises(LLMOutputInvalidError):
+                rewrite_queries(self.task, self.request, settings=ready_settings)
+
+    def test_query_rewrite_returns_distinct_queries_sorted_by_priority(self) -> None:
+        ready_settings = replace(self.settings, llm_api_key="dummy-key", enable_llm_planning=True)
+        with patch(
+            "app.services.query_rewrite._rewrite_queries_with_llm",
+            return_value=[
+                ResearchQuery(query="examples", intent="example", priority=3),
+                ResearchQuery(query="official docs", intent="official", priority=0),
+                ResearchQuery(query="latest benchmarks", intent="recent", priority=1),
+            ],
+        ):
+            queries = rewrite_queries(self.task, self.request, settings=ready_settings)
+
+        self.assertEqual([query.query for query in queries], ["official docs", "latest benchmarks", "examples"])
 
 
 if __name__ == "__main__":

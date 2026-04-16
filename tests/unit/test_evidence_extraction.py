@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import unittest
+from unittest.mock import patch
 
 from app.config import Settings
-from app.domain.models import ResearchTask, SourceDocument
+from app.domain.models import Evidence, ResearchTask, SourceDocument
 from app.services.evidence_extraction import build_task_evidence
+from app.services.llm import LLMNotReadyError
 
 
 class EvidenceExtractionServiceTest(unittest.TestCase):
@@ -13,7 +16,7 @@ class EvidenceExtractionServiceTest(unittest.TestCase):
             app_name="test",
             planner_model="test-model",
             synthesis_model="test-model",
-            llm_api_key=None,
+            llm_api_key="dummy-key",
             llm_base_url=None,
             tavily_api_key=None,
             brave_api_key=None,
@@ -26,40 +29,63 @@ class EvidenceExtractionServiceTest(unittest.TestCase):
             search_max_results=3,
             require_human_review=False,
             enable_llm_planning=False,
-            enable_llm_synthesis=False,
+            enable_llm_synthesis=True,
         )
         self.task = ResearchTask(
             task_id="task-1",
             title="Evidence extraction",
             question="Improve evidence extraction coverage for deep research",
         )
-
-    def test_fallback_extraction_keeps_multiple_supported_evidence_items(self) -> None:
-        findings, sources = build_task_evidence(
-            self.task,
-            [
-                SourceDocument(
-                    source_id="S1",
-                    url="https://docs.example.com/deep-research",
-                    title="Deep research rollout guide",
-                    content=(
-                        "Deep research is a workflow for collecting evidence across multiple sources. "
-                        "In one customer case, the workflow reduced citation errors by 32 percent. "
-                        "A key risk is that low-diversity sources can still pass naive evidence thresholds."
-                    ),
-                    fetched_at="2026-04-13T00:00:00+00:00",
-                    providers=["tavily"],
-                    acquisition_method="provider_raw_content",
-                )
-            ],
-            settings=self.settings,
+        self.source = SourceDocument(
+            source_id="S1",
+            url="https://docs.example.com/deep-research",
+            title="Deep research rollout guide",
+            content=(
+                "Deep research is a workflow for collecting evidence across multiple sources. "
+                "In one customer case, the workflow reduced citation errors by 32 percent. "
+                "A key risk is that low-diversity sources can still pass naive evidence thresholds."
+            ),
+            fetched_at="2026-04-13T00:00:00+00:00",
+            providers=["tavily"],
+            acquisition_method="provider_raw_content",
         )
 
+    def test_build_task_evidence_requires_llm(self) -> None:
+        with self.assertRaises(LLMNotReadyError):
+            build_task_evidence(
+                self.task,
+                [self.source],
+                settings=replace(self.settings, llm_api_key=None, enable_llm_synthesis=False),
+            )
+
+    def test_build_task_evidence_keeps_sources_with_llm_extracted_evidence(self) -> None:
+        with patch(
+            "app.services.evidence_extraction._extract_source_evidence_with_llm",
+            return_value=[
+                Evidence(
+                    evidence_id="",
+                    task_id=self.task.task_id,
+                    claim="The workflow reduced citation errors by 32 percent.",
+                    snippet="The workflow reduced citation errors by 32 percent.",
+                    source_id=self.source.source_id,
+                    url=self.source.url,
+                    title=self.source.title,
+                    evidence_type="example",
+                    source_role="official",
+                )
+            ],
+        ):
+            findings, sources = build_task_evidence(
+                self.task,
+                [self.source],
+                settings=self.settings,
+            )
+
         self.assertEqual(len(sources), 1)
-        self.assertGreaterEqual(len(findings), 2)
-        self.assertTrue(all(finding.snippet in sources[0].content for finding in findings))
-        self.assertIn("official", {finding.source_role for finding in findings})
-        self.assertTrue({"example", "risk"} & {finding.evidence_type for finding in findings})
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].source_role, "official")
+        self.assertEqual(findings[0].evidence_type, "example")
+        self.assertEqual(findings[0].evidence_id, "task-1-S1-1")
 
 
 if __name__ == "__main__":

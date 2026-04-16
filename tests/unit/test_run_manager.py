@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,6 +9,7 @@ from unittest.mock import patch
 
 from app.config import Settings
 from app.run_manager import InvalidRunStateError, ResearchRunManager
+from app.services.llm import LLMNotReadyError
 
 
 class ResearchRunManagerTest(unittest.IsolatedAsyncioTestCase):
@@ -18,7 +20,7 @@ class ResearchRunManagerTest(unittest.IsolatedAsyncioTestCase):
             app_name="test",
             planner_model="test-model",
             synthesis_model="test-model",
-            llm_api_key=None,
+            llm_api_key="dummy-key",
             llm_base_url=None,
             tavily_api_key=None,
             brave_api_key=None,
@@ -30,8 +32,8 @@ class ResearchRunManagerTest(unittest.IsolatedAsyncioTestCase):
             default_max_parallel_tasks=3,
             search_max_results=3,
             require_human_review=False,
-            enable_llm_planning=False,
-            enable_llm_synthesis=False,
+            enable_llm_planning=True,
+            enable_llm_synthesis=True,
         )
         self.manager = ResearchRunManager(self.settings)
         await self.manager.initialize()
@@ -65,6 +67,27 @@ class ResearchRunManagerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stored.progress_events[-1].progress.phase, "completed")
         self.assertEqual(len(conversation.messages), 2)
         self.assertEqual(conversation.messages[-1].content, "# Final")
+
+    async def test_create_run_requires_llm_before_queueing(self) -> None:
+        manager = ResearchRunManager(
+            replace(
+                self.settings,
+                llm_api_key=None,
+                enable_llm_planning=False,
+                enable_llm_synthesis=False,
+            )
+        )
+        await manager.initialize()
+        try:
+            with self.assertRaises(LLMNotReadyError):
+                await manager.create_run(
+                    {
+                        "question": "Question",
+                        "output_language": "zh-CN",
+                    }
+                )
+        finally:
+            await manager.shutdown()
 
     async def test_create_message_adds_follow_up_turn_in_same_conversation(self) -> None:
         captured_memories: list[dict | None] = []

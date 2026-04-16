@@ -117,15 +117,12 @@ def build_graph(checkpointer=None):
 
 **核心调用链**：
 1. `app.services.planning.plan_research_tasks(question, gaps, max_tasks, settings, memory)`
-2. 内部先尝试 `_maybe_plan_with_llm`：
-   - 使用 `ChatPromptTemplate` + `ChatOpenAI.with_structured_output(ResearchPlan)` 调用 planner LLM
-   - Prompt 中注入 conversation memory（rolling summary、recent turns、key facts、open questions）和 gaps
-3. 若 LLM 不可用或调用失败，则回退到 `_build_fallback_plan`：
-   - 若有 gaps，按 gap 的 `title`/`reason`/`retry_hint` 构造任务
-   - 若无 gaps，使用 3 个默认种子主题：Establish scope、Collect recent evidence、Synthesize tradeoffs
+2. 使用 `ChatPromptTemplate` + `ChatOpenAI.with_structured_output(ResearchPlan)` 调用 planner LLM
+3. Prompt 中注入 conversation memory（rolling summary、recent turns、key facts、open questions）和 gaps
+4. 若 LLM 不可用、调用失败或返回无效结构，则直接中止 run，不再构造 fallback 任务
 
 **设计意图**：
-- **双路径规划**：优先 LLM 智能规划，但绝不因 LLM 失败而阻塞流程。
+- **单路径规划**：规划质量完全交给 LLM，同时把失败显式暴露给 run 生命周期。
 - **迭代命名规范**：任务 ID 带迭代前缀，便于在日志和 UI 中追踪是哪一轮生成的任务。
 
 ---
@@ -292,12 +289,12 @@ def after_gap_check(state: dict) -> str:
 
 **核心调用链**：
 1. `app.services.synthesis.assign_report_headings(...)`
-   - 尝试用 LLM 将任务 title 改写为更合适的报告章节标题
-   - LLM 失败时回退到规则化清理（去掉前缀动词、首字母大写等）
+   - 用 LLM 将任务 title 改写为更合适的报告章节标题
+   - 若 LLM 输出为空、重复或冲突，直接让 run 失败
 2. `app.services.synthesis.synthesize_report(...)`
    - **单阶段合成**：当 findings/sources 数量在预算内，一次性调用 LLM 生成 `ReportDraft`
-   - **多阶段分段合成**：超出预算时，按 `SectionPlan` 分块调用 LLM，每块独立生成 `ReportSectionDraft`，最后合并
-   - **Fallback 报告**：LLM 不可用时，基于 findings 生成列表式章节（Summary + Task Sections + Risks + Conclusion）
+   - **多阶段分段合成**：超出预算或单阶段调用失败时，按 `SectionPlan` 分块调用 LLM，每块独立生成 `ReportSectionDraft`，最后合并
+   - 不再在 LLM 不可用时拼接 deterministic 报告
 3. `app.services.report_contract.build_structured_report(...)`
    - 将 `ReportDraft` 提升为完整的 `StructuredReport`，包含：
      - `title`、`summary`、`markdown`

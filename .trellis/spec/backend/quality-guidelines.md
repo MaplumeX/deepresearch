@@ -34,9 +34,11 @@ Why:
 
 ## Required Patterns
 
-### Deterministic Fallbacks
+### LLM-Only Entry Contracts
 
-When LLM credentials are missing, planning and synthesis must still complete with deterministic fallback behavior.
+Research and chat entrypoints must reject requests before queueing work when required LLM capabilities are unavailable.
+
+Planning, query rewrite, evidence extraction, heading assignment, synthesis, and chat reply generation must fail explicitly instead of silently degrading to deterministic generated content.
 
 ### Pure Service Isolation
 
@@ -96,6 +98,6 @@ uv run pytest
 - Do graph nodes only return partial state updates?
 - Are side effects isolated to `app/tools/` or runtime adapters?
 - Does every inline citation map to a real `source_id`?
-- Does the code still work without model credentials?
+- Does the code reject unsupported research/chat requests before queueing work when model readiness is missing?
 - Is new reusable logic placed in `app/services/` instead of copied across nodes?
 - Does the change keep backend quality tooling discoverable from `pyproject.toml` and documented commands?

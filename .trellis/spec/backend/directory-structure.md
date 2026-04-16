@@ -63,7 +63,7 @@ tests/
 ### Services Layer
 
 - Keep services deterministic and side-effect free
-- Put merge, dedupe, citation, budget, and synthesis fallback logic here
+- Put merge, dedupe, citation, budget, prompt compaction, and LLM output validation logic here
 - Prefer services when logic needs unit tests without external dependencies
 - Put ranking, filtering, scoring, and snippet-selection logic here when a worker needs business decisions without network side effects
 

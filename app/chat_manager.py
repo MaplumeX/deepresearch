@@ -16,6 +16,7 @@ from app.domain.models import (
 )
 from app.run_store import ResearchRunStore, build_conversation_title
 from app.services.chat import generate_chat_reply
+from app.services.llm import ensure_chat_llm_ready
 
 
 TERMINAL_CHAT_STATUSES = {"completed", "failed"}
@@ -138,6 +139,7 @@ class ChatConversationManager:
         request_payload: dict,
         title: str | None,
     ) -> tuple[ResearchConversationDetail, ChatTurnDetail]:
+        ensure_chat_llm_ready(self._settings)
         turn_id = uuid4().hex
         origin_message_id = uuid4().hex
         assistant_message_id = uuid4().hex

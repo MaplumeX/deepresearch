@@ -11,15 +11,15 @@ from pydantic import BaseModel, Field
 from app.config import Settings
 from app.domain.models import CoverageRequirement, ReportDraft, ReportSectionDraft, StructuredReport
 from app.services.conversation_memory import build_contextual_brief
-from app.services.llm import build_structured_chat_model, can_use_llm
+from app.services.llm import (
+    InsufficientEvidenceError,
+    LLMInvocationError,
+    LLMOutputInvalidError,
+    LLMServiceError,
+    build_structured_chat_model,
+    ensure_synthesis_llm_ready,
+)
 from app.services.report_contract import ReportLabels, build_structured_report, get_report_labels
-_TASK_HEADING_PREFIX_PATTERN = re.compile(
-    r"^(?:assess|analyze|analyse|compare|evaluate|examine|investigate|review|study|validate|verify|collect|establish|recover|determine|identify|understand|map|synthesize)\s+",
-    re.IGNORECASE,
-)
-_TASK_HEADING_PREFIX_CJK_PATTERN = re.compile(
-    r"^(?:评估|分析|研究|验证|核实|梳理|调查|比较|收集|明确|确定|识别|理解|恢复|建立)\s*"
-)
 _MAX_TASK_TITLE_LENGTH = 120
 _MAX_TASK_QUESTION_LENGTH = 220
 _MAX_CLAIM_LENGTH = 280
@@ -65,8 +65,9 @@ def assign_report_headings(
     if not tasks:
         return []
 
+    ensure_synthesis_llm_ready(settings)
     labels = get_report_labels(output_language)
-    drafted = _maybe_generate_report_headings_with_llm(
+    drafted = _generate_report_headings_with_llm(
         question=question,
         tasks=tasks,
         findings=findings,
@@ -76,59 +77,19 @@ def assign_report_headings(
     return _finalize_task_report_headings(tasks, drafted, labels)
 
 
-def _fallback_report(
-    question: str,
-    tasks: list[dict],
-    coverage_requirements: list[dict] | None,
-    findings: list[dict],
-    labels: ReportLabels,
-) -> ReportDraft:
-    normalized_requirements = _normalize_coverage_requirements(coverage_requirements, labels)
-    if normalized_requirements:
-        analysis_sections = _build_requirement_sections(tasks, normalized_requirements, findings)
-    else:
-        analysis_sections = _build_task_sections(tasks, findings, labels)
-
-    risks = (
-        None
-        if _has_risk_requirement(normalized_requirements)
-        else _build_risk_section(findings, labels)
-    )
-    if risks is not None:
-        analysis_sections.append(risks)
-
-    conclusion = _build_conclusion_section(findings, labels)
-    if conclusion is not None:
-        analysis_sections.append(conclusion)
-
-    if not analysis_sections:
-        analysis_sections.append(
-            ReportSectionDraft(
-                heading=labels.conclusion_heading,
-                body_markdown=f"{labels.question_prefix}: {question}",
-            )
-        )
-
-    return ReportDraft(
-        title=labels.title,
-        summary="\n".join(_build_summary_lines(_primary_report_findings(findings), limit=3, labels=labels)),
-        sections=analysis_sections,
-    )
-
-
 def _maybe_synthesize_single_call(
     question: str,
     payload: CompactPayload,
     settings: Settings,
     labels: ReportLabels,
-) -> ReportDraft | None:
+) -> ReportDraft:
     if not payload.findings:
-        return None
+        raise InsufficientEvidenceError("Synthesis requires evidence findings.")
 
     try:
         from langchain_core.prompts import ChatPromptTemplate
-    except ImportError:
-        return None
+    except ImportError as exc:
+        raise LLMInvocationError("Synthesis dependencies are not installed.") from exc
 
     prompt = ChatPromptTemplate.from_messages(
         [
@@ -160,7 +121,7 @@ def _maybe_synthesize_single_call(
     )
     model = build_structured_chat_model(settings.synthesis_model, settings, ReportDraft, temperature=0)
     if model is None:
-        return None
+        raise LLMInvocationError("Synthesis model could not be initialized.")
 
     chain = prompt | model
     try:
@@ -178,10 +139,10 @@ def _maybe_synthesize_single_call(
                 "conclusion_heading": labels.conclusion_heading,
             }
         )
-    except Exception:
-        return None
+    except Exception as exc:
+        raise LLMInvocationError("Single-call synthesis failed.") from exc
     if not drafted.sections and payload.findings:
-        return None
+        raise LLMOutputInvalidError("Single-call synthesis returned no sections.")
     return drafted
 
 
@@ -194,7 +155,7 @@ def _maybe_synthesize_multi_stage(
     settings: Settings,
     memory_brief: str,
     labels: ReportLabels,
-) -> ReportDraft | None:
+) -> ReportDraft:
     section_drafts: list[ReportSectionDraft] = []
     normalized_requirements = _normalize_coverage_requirements(coverage_requirements, labels)
     for plan in _build_section_plans(tasks, normalized_requirements, findings, labels):
@@ -212,7 +173,7 @@ def _maybe_synthesize_multi_stage(
         )
 
     if not section_drafts:
-        return None
+        raise LLMOutputInvalidError("Multi-stage synthesis returned no sections.")
     return _merge_section_drafts(tasks, normalized_requirements, findings, section_drafts, labels)
 
 
@@ -227,22 +188,26 @@ def synthesize_report(
     memory: dict[str, Any] | None = None,
     output_language: str | None = None,
 ) -> StructuredReport:
+    ensure_synthesis_llm_ready(settings)
+    if not findings:
+        raise InsufficientEvidenceError("Synthesis requires evidence findings.")
+
     labels = get_report_labels(output_language)
     normalized_requirements = _normalize_coverage_requirements(coverage_requirements, labels)
-    drafted: ReportDraft | None = None
-    if settings.enable_llm_synthesis and can_use_llm(settings) and findings:
-        memory_brief = _build_synthesis_memory_brief(memory)
-        payload = _build_compact_payload(
-            question,
-            tasks,
-            normalized_requirements,
-            findings,
-            sources,
-            memory_brief,
-        )
-        if _should_keep_payload_together(payload, settings):
+    memory_brief = _build_synthesis_memory_brief(memory)
+    payload = _build_compact_payload(
+        question,
+        tasks,
+        normalized_requirements,
+        findings,
+        sources,
+        memory_brief,
+    )
+    drafted: ReportDraft
+    if _should_keep_payload_together(payload, settings):
+        try:
             drafted = _maybe_synthesize_single_call(question, payload, settings, labels)
-        if drafted is None:
+        except LLMServiceError:
             drafted = _maybe_synthesize_multi_stage(
                 question,
                 tasks,
@@ -253,8 +218,17 @@ def synthesize_report(
                 memory_brief,
                 labels,
             )
-    if drafted is None:
-        drafted = _fallback_report(question, tasks, normalized_requirements, findings, labels)
+    else:
+        drafted = _maybe_synthesize_multi_stage(
+            question,
+            tasks,
+            normalized_requirements,
+            findings,
+            sources,
+            settings,
+            memory_brief,
+            labels,
+        )
     return build_structured_report(
         drafted,
         sources=sources,
@@ -272,7 +246,7 @@ def _synthesize_section_plan(
     settings: Settings,
     memory_brief: str,
     labels: ReportLabels,
-) -> list[ReportSectionDraft]:
+    ) -> list[ReportSectionDraft]:
     relevant_tasks = _relevant_tasks(tasks, plan.findings)
     plan_payload = _build_compact_payload(
         question,
@@ -286,16 +260,18 @@ def _synthesize_section_plan(
         focus="Cross-task synthesis",
     )
     if _should_keep_payload_together(plan_payload, settings):
-        draft = _maybe_synthesize_section_with_llm(
-            question=question,
-            plan=plan,
-            payload=plan_payload,
-            settings=settings,
-            focus="Cross-task synthesis",
-            labels=labels,
-        )
-        if draft is not None:
+        try:
+            draft = _maybe_synthesize_section_with_llm(
+                question=question,
+                plan=plan,
+                payload=plan_payload,
+                settings=settings,
+                focus="Cross-task synthesis",
+                labels=labels,
+            )
             return [draft]
+        except LLMServiceError:
+            pass
 
     section_drafts: list[ReportSectionDraft] = []
     for task in relevant_tasks:
@@ -323,25 +299,23 @@ def _synthesize_section_plan(
                 purpose=plan.purpose,
                 focus=_task_focus(task),
             )
-            draft = None
-            if _can_invoke_payload(payload.estimated_size, settings):
-                draft = _maybe_synthesize_section_with_llm(
-                    question=question,
-                    plan=plan,
-                    payload=payload,
-                    settings=settings,
-                    focus=_task_focus(task),
-                    labels=labels,
+            if not _can_invoke_payload(payload.estimated_size, settings):
+                raise LLMOutputInvalidError(
+                    f"Synthesis payload for section `{plan.heading}` exceeded the hard limit.",
                 )
-            if draft is None:
-                draft = _fallback_section(plan.heading, chunk)
-            if draft is not None:
-                section_drafts.append(draft)
+            draft = _maybe_synthesize_section_with_llm(
+                question=question,
+                plan=plan,
+                payload=payload,
+                settings=settings,
+                focus=_task_focus(task),
+                labels=labels,
+            )
+            section_drafts.append(draft)
 
-    if section_drafts:
-        return section_drafts
-    fallback = _fallback_section(plan.heading, plan.findings)
-    return [fallback] if fallback is not None else []
+    if not section_drafts:
+        raise LLMOutputInvalidError(f"Synthesis produced no valid sections for `{plan.heading}`.")
+    return section_drafts
 
 
 def _maybe_synthesize_section_with_llm(
@@ -351,14 +325,14 @@ def _maybe_synthesize_section_with_llm(
     settings: Settings,
     focus: str,
     labels: ReportLabels,
-) -> ReportSectionDraft | None:
+) -> ReportSectionDraft:
     if not payload.findings:
-        return None
+        raise InsufficientEvidenceError(f"Synthesis section `{plan.heading}` requires evidence findings.")
 
     try:
         from langchain_core.prompts import ChatPromptTemplate
-    except ImportError:
-        return None
+    except ImportError as exc:
+        raise LLMInvocationError("Section synthesis dependencies are not installed.") from exc
 
     prompt = ChatPromptTemplate.from_messages(
         [
@@ -386,7 +360,7 @@ def _maybe_synthesize_section_with_llm(
     )
     model = build_structured_chat_model(settings.synthesis_model, settings, ReportSectionDraft, temperature=0)
     if model is None:
-        return None
+        raise LLMInvocationError("Section synthesis model could not be initialized.")
 
     chain = prompt | model
     try:
@@ -403,11 +377,11 @@ def _maybe_synthesize_section_with_llm(
                 "language_name": labels.language_name,
             }
         )
-    except Exception:
-        return None
+    except Exception as exc:
+        raise LLMInvocationError(f"Section synthesis failed for `{plan.heading}`.") from exc
     body = drafted.body_markdown.strip()
     if not body:
-        return None
+        raise LLMOutputInvalidError(f"Section synthesis returned an empty body for `{plan.heading}`.")
     return ReportSectionDraft(heading=plan.heading, body_markdown=body)
 
 
@@ -435,7 +409,7 @@ def _merge_section_drafts(
         if grouped.get(heading)
     ]
     if not sections:
-        return _fallback_report("", tasks, findings, labels)
+        raise LLMOutputInvalidError("Merged synthesis sections produced no report content.")
     return ReportDraft(
         title=labels.title,
         summary="\n".join(_build_summary_lines(_primary_report_findings(findings), limit=3, labels=labels)),
@@ -482,24 +456,6 @@ def _build_summary_lines(findings: list[dict], limit: int, labels: ReportLabels)
         f"- {item['claim']} [{item['source_id']}]"
         for item in summary_claims
     ] or [labels.no_evidence_line]
-
-
-def _fallback_section(
-    heading: str,
-    findings: list[dict],
-    *,
-    limit: int | None = None,
-) -> ReportSectionDraft | None:
-    lines = [
-        f"- {item['claim']} [{item['source_id']}]"
-        for item in _select_diverse_findings(
-            _sort_findings_for_synthesis(findings),
-            limit=limit or _section_line_limit(heading),
-        )
-    ]
-    if not lines:
-        return None
-    return ReportSectionDraft(heading=heading, body_markdown="\n".join(lines))
 
 
 def _should_keep_payload_together(payload: CompactPayload, settings: Settings) -> bool:
@@ -760,50 +716,6 @@ def _merge_markdown_blocks(blocks: list[str]) -> str:
     return "\n\n".join(merged)
 
 
-def _section_line_limit(heading: str) -> int:
-    return {
-        "Risks and Limitations": 4,
-        "风险与局限": 4,
-        "Conclusion": 5,
-        "结论": 5,
-    }.get(heading, 5)
-
-
-def _build_task_sections(tasks: list[dict], findings: list[dict], labels: ReportLabels) -> list[ReportSectionDraft]:
-    grouped: dict[str, list[dict]] = defaultdict(list)
-    for finding in findings:
-        task_id = _as_text(finding.get("task_id"))
-        if not task_id or _is_risk_finding(finding):
-            continue
-        grouped[task_id].append(finding)
-
-    sections: list[ReportSectionDraft] = []
-    for task in tasks:
-        task_id = _as_text(task.get("task_id"))
-        if not task_id:
-            continue
-        section = _fallback_section(
-            _task_report_heading(task),
-            grouped.get(task_id, []),
-        )
-        if section is not None:
-            sections.append(section)
-    return sections
-
-
-def _build_requirement_sections(
-    tasks: list[dict],
-    coverage_requirements: list[dict[str, Any]],
-    findings: list[dict],
-) -> list[ReportSectionDraft]:
-    sections: list[ReportSectionDraft] = []
-    for plan in _build_requirement_section_plans(tasks, coverage_requirements, findings):
-        section = _fallback_section(plan.heading, plan.findings)
-        if section is not None:
-            sections.append(section)
-    return sections
-
-
 def _build_task_section_plans(tasks: list[dict], findings: list[dict]) -> list[SectionPlan]:
     grouped: dict[str, list[dict]] = defaultdict(list)
     for finding in findings:
@@ -848,16 +760,6 @@ def _build_requirement_section_plans(
             )
         )
     return plans
-
-
-def _build_risk_section(findings: list[dict], labels: ReportLabels) -> ReportSectionDraft | None:
-    risk_findings = [item for item in findings if _is_risk_finding(item)]
-    return _fallback_section(labels.risks_heading, risk_findings, limit=4)
-
-
-def _build_conclusion_section(findings: list[dict], labels: ReportLabels) -> ReportSectionDraft | None:
-    conclusion_findings = _primary_report_findings(findings)
-    return _fallback_section(labels.conclusion_heading, conclusion_findings, limit=5)
 
 
 def _ordered_report_headings(
@@ -942,17 +844,10 @@ def _coverage_requirement_heading(
     explicit_heading = _trim_text(_as_text(requirement.get("heading")), _MAX_REPORT_HEADING_LENGTH)
     if explicit_heading:
         return explicit_heading
-    requirement_id = _as_text(requirement.get("requirement_id")).casefold()
-    if requirement_id == "scope-terminology":
-        return "Scope and Terminology" if labels and labels.language_name == "English" else "范围与术语"
-    if requirement_id == "recent-evidence":
-        return "Recent Evidence and Examples" if labels and labels.language_name == "English" else "近期证据与案例"
-    if requirement_id == "risks-tradeoffs":
-        return labels.risks_heading if labels else "Risks and Limitations"
-    return (
-        _trim_text(_as_text(requirement.get("title")), _MAX_REPORT_HEADING_LENGTH)
-        or "Analysis"
-    )
+    title = _trim_text(_as_text(requirement.get("title")), _MAX_REPORT_HEADING_LENGTH)
+    if title:
+        return title
+    return labels.risks_heading if labels else "Analysis"
 
 
 def _coverage_requirement_purpose(requirement: dict[str, Any]) -> str:
@@ -1027,29 +922,13 @@ def _has_risk_requirement(coverage_requirements: list[dict[str, Any]]) -> bool:
     return False
 
 
-def _normalize_task_heading(task: dict[str, Any]) -> str:
-    raw_heading = _trim_text(_as_text(task.get("title")), _MAX_TASK_TITLE_LENGTH)
-    if not raw_heading:
-        return _as_text(task.get("task_id")) or "Analysis"
-
-    normalized = raw_heading.strip().rstrip(" .:;。；：")
-    normalized = _TASK_HEADING_PREFIX_PATTERN.sub("", normalized, count=1)
-    normalized = _TASK_HEADING_PREFIX_CJK_PATTERN.sub("", normalized, count=1)
-    normalized = normalized.strip().rstrip(" .:;。；：")
-    if not normalized:
-        return raw_heading
-
-    first_char = normalized[:1]
-    if "a" <= first_char <= "z":
-        normalized = first_char.upper() + normalized[1:]
-    return normalized
-
-
 def _task_report_heading(task: dict[str, Any]) -> str:
     report_heading = _sanitize_report_heading(_as_text(task.get("report_heading")))
-    if report_heading:
-        return report_heading
-    return _normalize_task_heading(task)
+    if not report_heading:
+        raise LLMOutputInvalidError(
+            f"Task `{_as_text(task.get('task_id')) or 'unknown'}` is missing a valid report heading.",
+        )
+    return report_heading
 
 
 def _task_section_purpose(task: dict[str, Any]) -> str:
@@ -1060,20 +939,20 @@ def _task_section_purpose(task: dict[str, Any]) -> str:
     return f"Explain the evidence-backed answer for {heading}."
 
 
-def _maybe_generate_report_headings_with_llm(
+def _generate_report_headings_with_llm(
     question: str,
     tasks: list[dict],
     findings: list[dict],
     settings: Settings,
     labels: ReportLabels,
-) -> dict[str, str] | None:
-    if not settings.enable_llm_synthesis or not can_use_llm(settings) or not tasks:
-        return None
+) -> dict[str, str]:
+    if not tasks:
+        return {}
 
     try:
         from langchain_core.prompts import ChatPromptTemplate
-    except ImportError:
-        return None
+    except ImportError as exc:
+        raise LLMInvocationError("Report heading generation dependencies are not installed.") from exc
 
     prompt = ChatPromptTemplate.from_messages(
         [
@@ -1097,7 +976,7 @@ def _maybe_generate_report_headings_with_llm(
     )
     model = build_structured_chat_model(settings.synthesis_model, settings, TaskReportHeadingPlan, temperature=0)
     if model is None:
-        return None
+        raise LLMInvocationError("Report heading generation model could not be initialized.")
 
     chain = prompt | model
     try:
@@ -1108,8 +987,8 @@ def _maybe_generate_report_headings_with_llm(
                 "tasks": _build_heading_prompt_tasks(tasks, findings),
             }
         )
-    except Exception:
-        return None
+    except Exception as exc:
+        raise LLMInvocationError("Report heading generation failed.") from exc
 
     return {
         item.task_id: item.report_heading
@@ -1153,10 +1032,9 @@ def _build_heading_prompt_tasks(tasks: list[dict], findings: list[dict]) -> list
 
 def _finalize_task_report_headings(
     tasks: list[dict],
-    drafted: dict[str, str] | None,
+    drafted: dict[str, str],
     labels: ReportLabels,
 ) -> list[dict]:
-    drafted = drafted or {}
     reserved = {
         labels.summary_heading.casefold(),
         labels.risks_heading.casefold(),
@@ -1165,30 +1043,21 @@ def _finalize_task_report_headings(
     }
     seen: set[str] = set()
     finalized: list[dict] = []
-    for index, task in enumerate(tasks, start=1):
+    for task in tasks:
         task_id = _as_text(task.get("task_id"))
-        fallback = _normalize_task_heading(task)
-        candidates = [
-            _sanitize_report_heading(_as_text(task.get("report_heading"))),
-            _sanitize_report_heading(drafted.get(task_id, "")),
-            fallback,
-        ]
-        chosen = ""
-        for candidate in candidates:
-            if not candidate:
-                continue
-            key = candidate.casefold()
-            if key in reserved or key in seen:
-                continue
-            chosen = candidate
-            break
+        chosen = _sanitize_report_heading(drafted.get(task_id, "") or _as_text(task.get("report_heading")))
         if not chosen:
-            chosen = _make_unique_heading(fallback, seen, reserved, index)
+            raise LLMOutputInvalidError(f"Report heading generation returned no heading for task `{task_id}`.")
+        key = chosen.casefold()
+        if key in reserved:
+            raise LLMOutputInvalidError(f"Report heading `{chosen}` conflicts with a reserved report section.")
+        if key in seen:
+            raise LLMOutputInvalidError(f"Report heading `{chosen}` is duplicated across tasks.")
 
         updated_task = dict(task)
         updated_task["report_heading"] = chosen
         finalized.append(updated_task)
-        seen.add(chosen.casefold())
+        seen.add(key)
     return finalized
 
 
@@ -1197,21 +1066,6 @@ def _sanitize_report_heading(value: str) -> str:
     normalized = re.sub(r"\s*\[[^\]]+\]\s*$", "", normalized)
     normalized = normalized.rstrip(" .:;。；：")
     return _trim_text(normalized, _MAX_REPORT_HEADING_LENGTH)
-
-
-def _make_unique_heading(base: str, seen: set[str], reserved: set[str], index: int) -> str:
-    if not base:
-        base = "Analysis"
-    candidate = base
-    suffix = 2
-    while candidate.casefold() in seen or candidate.casefold() in reserved:
-        candidate = _trim_text(f"{base} ({suffix})", _MAX_REPORT_HEADING_LENGTH)
-        suffix += 1
-        if suffix > index + 3:
-            break
-    if candidate.casefold() in seen or candidate.casefold() in reserved:
-        candidate = _trim_text(f"{base} {index}", _MAX_REPORT_HEADING_LENGTH)
-    return candidate
 
 
 def _select_diverse_findings(findings: list[dict], limit: int) -> list[dict]:

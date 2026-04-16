@@ -6,7 +6,12 @@ from dataclasses import dataclass
 from app.config import Settings
 from app.domain.models import ConversationMessage
 from app.domain.models import ResearchConversationDetail
-from app.services.llm import build_chat_model, can_use_llm
+from app.services.llm import (
+    LLMInvocationError,
+    LLMOutputInvalidError,
+    build_chat_model,
+    ensure_chat_llm_ready,
+)
 
 
 SYSTEM_PROMPT = (
@@ -30,6 +35,7 @@ async def generate_chat_reply(
     if not latest_question:
         return ChatReplyResult(text="请提供一个具体问题。")
 
+    ensure_chat_llm_ready(settings)
     model = build_chat_model(
         settings.synthesis_model,
         settings,
@@ -37,13 +43,13 @@ async def generate_chat_reply(
         use_responses_api=True,
         use_previous_response_id=True,
     )
-    if not can_use_llm(settings) or model is None:
-        return _deterministic_fallback(latest_question)
+    if model is None:
+        raise LLMInvocationError("Chat model could not be initialized.")
 
     try:
         from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-    except ImportError:
-        return _deterministic_fallback(latest_question)
+    except ImportError as exc:
+        raise LLMInvocationError("Chat dependencies are not installed.") from exc
 
     messages = [SystemMessage(content=SYSTEM_PROMPT)]
     for message in conversation.messages:
@@ -59,17 +65,22 @@ async def generate_chat_reply(
 
     content_parts: list[str] = []
     provider_message_id: str | None = None
-    async for chunk in model.astream(messages):
-        provider_message_id = provider_message_id or _extract_provider_message_id(chunk)
-        text = _message_text(chunk)
-        if not text:
-            continue
-        content_parts.append(text)
-        if on_chunk is not None:
-            on_chunk("".join(content_parts), provider_message_id)
+    try:
+        async for chunk in model.astream(messages):
+            provider_message_id = provider_message_id or _extract_provider_message_id(chunk)
+            text = _message_text(chunk)
+            if not text:
+                continue
+            content_parts.append(text)
+            if on_chunk is not None:
+                on_chunk("".join(content_parts), provider_message_id)
+    except Exception as exc:
+        raise LLMInvocationError("Chat reply generation failed.") from exc
 
     full_content = "".join(content_parts)
-    text = full_content.strip() or "我暂时没有生成有效回复，请换个表述再试一次。"
+    text = full_content.strip()
+    if not text:
+        raise LLMOutputInvalidError("Chat reply returned no content.")
     return ChatReplyResult(text=text, provider_message_id=provider_message_id)
 
 
@@ -78,18 +89,6 @@ def _latest_user_question(conversation: ResearchConversationDetail) -> str:
         if message.role == "user" and message.content.strip():
             return message.content.strip()
     return ""
-
-
-def _deterministic_fallback(question: str) -> ChatReplyResult:
-    return ChatReplyResult(
-        text=(
-        "当前已进入普通对话模式，但服务端尚未配置可用的大模型。\n\n"
-        f"你的问题是：{question}\n\n"
-        "如需获得真实回答，请配置 `LLM_API_KEY` 或 `OPENAI_API_KEY`，"
-        "也可以通过 `LLM_BASE_URL` 接入兼容网关。"
-        )
-    )
-
 
 def _assistant_message_for_model(message: ConversationMessage, ai_message_cls):
     content = message.content.strip()

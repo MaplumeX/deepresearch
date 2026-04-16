@@ -90,7 +90,7 @@ dispatch_tasks → research_worker → merge_evidence → gap_check → synthesi
 
 - **State changes stay inside graph nodes**; pure logic stays in `app/services/`.
 - **External side effects stay inside `app/tools/`** or runtime adapters.
-- **Deterministic fallback** must still work when LLM credentials are absent.
+- **Research and chat entrypoints must reject unsupported requests before queueing work when LLM readiness is missing.**
 - **Reports must only cite `source_id`s that exist in `sources`.**
 - Add unit coverage for pure service logic.
 

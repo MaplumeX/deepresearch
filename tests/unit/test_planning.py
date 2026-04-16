@@ -8,10 +8,12 @@ if importlib.util.find_spec("pydantic") is not None:
     from app.config import Settings
     from app.domain.models import CoverageRequirement, ResearchPlan, ResearchTask
     from app.graph.nodes.planner import plan_research
+    from app.services.llm import LLMNotReadyError
     from app.services.planning import plan_research_tasks
 else:
     Settings = None
     CoverageRequirement = None
+    LLMNotReadyError = None
     plan_research = None
     ResearchPlan = None
     ResearchTask = None
@@ -41,62 +43,16 @@ class PlanningServiceTest(unittest.TestCase):
             enable_llm_synthesis=False,
         )
 
-    def test_fallback_planner_limits_task_count(self) -> None:
-        plan = plan_research_tasks(
-            question="How do I build a deep research agent?",
-            gaps=[],
-            max_tasks=2,
-            settings=self.settings,
-        )
-        self.assertEqual(len(plan.tasks), 2)
-        self.assertEqual(plan.tasks[0].task_id, "task-1")
-        self.assertEqual(len(plan.coverage_requirements), 3)
-        self.assertEqual(plan.coverage_requirements[0].requirement_id, "scope-terminology")
+    def test_plan_research_tasks_requires_llm(self) -> None:
+        with self.assertRaises(LLMNotReadyError):
+            plan_research_tasks(
+                question="How do I build a deep research agent?",
+                gaps=[],
+                max_tasks=2,
+                settings=self.settings,
+            )
 
-    def test_gaps_are_translated_to_follow_up_tasks(self) -> None:
-        plan = plan_research_tasks(
-            question="How do I build a deep research agent?",
-            gaps=[
-                {
-                    "gap_type": "retrieval_failure",
-                    "task_id": "iter-1-task-1",
-                    "title": "Recover search coverage for primary sources",
-                    "reason": "No ranked search results were available for this task.",
-                    "retry_hint": "Broaden the search framing and look for official or primary sources.",
-                    "severity": "high",
-                }
-            ],
-            max_tasks=3,
-            settings=self.settings,
-        )
-        self.assertEqual(plan.tasks[0].title, "Recover search coverage for primary sources")
-        self.assertIn("Retry hint:", plan.tasks[0].question)
-        self.assertIn("evidence", plan.tasks[0].coverage_tags)
-
-    def test_fallback_planner_includes_memory_context_in_task_question(self) -> None:
-        plan = plan_research_tasks(
-            question="Can you continue this?",
-            gaps=[],
-            max_tasks=1,
-            settings=self.settings,
-            memory={
-                "rolling_summary": "Earlier research compared LangGraph and LangChain roles.",
-                "recent_turns": [
-                    {
-                        "run_id": "run-1",
-                        "question": "How does the graph work?",
-                        "answer_digest": "It plans, runs workers, merges evidence, and synthesizes a report.",
-                        "status": "completed",
-                        "created_at": "2026-04-13T00:00:00+00:00",
-                    }
-                ],
-                "key_facts": [],
-                "open_questions": [],
-            },
-        )
-        self.assertIn("Conversation context:", plan.tasks[0].question)
-
-    def test_planner_uses_llm_coverage_requirements_when_available(self) -> None:
+    def test_plan_research_tasks_returns_llm_plan(self) -> None:
         llm_plan = ResearchPlan(
             tasks=[
                 ResearchTask(
@@ -116,7 +72,7 @@ class PlanningServiceTest(unittest.TestCase):
             ],
         )
 
-        with patch("app.services.planning._maybe_plan_with_llm", return_value=llm_plan):
+        with patch("app.services.planning._plan_with_llm", return_value=llm_plan):
             plan = plan_research_tasks(
                 question="How do I build a deep research agent?",
                 gaps=[],
@@ -137,6 +93,7 @@ class PlanningServiceTest(unittest.TestCase):
                         task_id="task-1",
                         title="Recover search coverage",
                         question="Q",
+                        coverage_tags=["recent", "evidence"],
                     )
                 ],
                 coverage_requirements=[

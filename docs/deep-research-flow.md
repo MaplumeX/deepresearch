@@ -8,7 +8,7 @@ Deep Research 是一个基于 **LangGraph + LangChain（Python 后端）** 和 *
 
 - **状态变更只在 Graph Node 中发生**：纯业务逻辑下沉到 `app/services/`
 - **外部副作用只在 Tool 层发生**：所有网络 I/O 集中在 `app/tools/`
-- **支持确定性降级**：当 LLM 凭证不可用时，仍有 fallback 逻辑保证流程继续
+- **LLM-first + fail-fast**：上层生成链路强依赖 LLM；未配置时在入口直接拒绝请求
 - **引用可审计**：报告中的 `source_id` 必须真实存在于 `sources` 中
 
 ---
@@ -57,9 +57,9 @@ flowchart TD
 - 职责：根据当前问题、上一轮 gaps、对话记忆生成研究任务列表。
 - **迭代计数器**：`iteration_count` 自增。
 - **任务 ID 规则**：`iter-{iteration}-task-{index}`。
-- **双路径规划**：
-  - 优先尝试 LLM 规划（`app/services/planning.py` 的 `_maybe_plan_with_llm`）
-  - 若 LLM 不可用或无凭证，则使用 fallback 规划（`_build_fallback_plan`），基于 gaps 或默认种子主题生成任务
+- **单一路径规划**：
+  - 通过 `app/services/planning.py` 调用 planner LLM 生成任务和 coverage requirements
+  - 若 LLM 不可用、调用失败或输出不合法，则 run 直接失败，不再生成默认任务模板
 
 #### `dispatch_tasks`
 - 职责：调度待执行的研究任务。
@@ -93,8 +93,7 @@ flowchart TD
 - 职责：将 findings 和 sources 合成为结构化报告。
 - **两阶段合成策略**（`app/services/synthesis.py`）：
   1. **单阶段 LLM 合成**：当 findings/sources 数量在预算内时，一次性调用 LLM 生成完整报告草案
-  2. **多阶段分段合成**：若超出预算，按 section plan 分块调用 LLM，每块独立生成后再合并
-  3. **Fallback 报告**：LLM 不可用时，基于 findings 直接拼接结构化列表式报告
+  2. **多阶段分段合成**：若超出预算或单阶段调用失败，按 section plan 分块调用 LLM，每块独立生成后再合并
 - **报告章节结构**：
   - 按任务分章（每个 task 对应一个 report_heading）
   - 风险与局限（`risks_heading`）
@@ -226,12 +225,12 @@ flowchart LR
   - `citation_audit` 发现严重引用问题
   - 全局配置 `require_human_review=True`
 
-### 5.5 确定性降级（Deterministic Fallback）
+### 5.5 LLM 就绪性与失败语义
 
-- 当 `can_use_llm(settings)` 返回 False 时，所有依赖 LLM 的节点均有 fallback：
-  - **Planning**：使用基于 gaps 的预设任务模板
-  - **Synthesis**：使用 findings 拼接列表式报告
-  - **Heading Assignment**：使用任务 title 的规则化清理版本
+- research / chat 在创建 run 或 turn 之前都会检查 LLM 是否已配置。
+- 若 LLM 不可用，API 在入口直接返回 `503`，不会创建 queued run / chat turn。
+- `planning`、`query rewrite`、`heading assignment`、`evidence extraction`、`synthesis`、`chat` 都改为 LLM-only。
+- retrieval 层仍保留 provider fallback（如 Jina Reader、Firecrawl），但这与上层生成类 fallback 已明确分离。
 
 ---
 
@@ -239,15 +238,15 @@ flowchart LR
 
 | 服务文件 | 职责 |
 |----------|------|
-| `app/services/planning.py` | 研究任务规划（LLM / Fallback） |
-| `app/services/synthesis.py` | 报告合成（单阶段/多阶段/fallback） |
+| `app/services/planning.py` | 研究任务规划（LLM-only） |
+| `app/services/synthesis.py` | 报告合成（单阶段 / 多阶段 LLM） |
 | `app/services/research_quality.py` | 缺口识别、质量评估、task outcome 构建 |
 | `app/services/dedupe.py` | findings 去重 |
 | `app/services/citations.py` | 引用解析、缺失引用检测 |
 | `app/services/report_contract.py` | 结构化报告构建、默认标题/标签 |
 | `app/services/research_worker.py` | query 重写、搜索排序、内容过滤 |
 | `app/services/conversation_memory.py` | 对话记忆格式化、上下文摘要 |
-| `app/services/llm.py` | LLM 模型构建、可用性检查 |
+| `app/services/llm.py` | LLM 模型构建、可用性检查、错误契约 |
 
 ---
 

@@ -236,10 +236,10 @@ npm run test
 
 ## 运行说明
 
-- 如果没有配置 `LLM_BASE_URL` / `LLM_API_KEY`，规划和综合会退化为确定性 fallback
+- 如果没有配置 `LLM_BASE_URL` / `LLM_API_KEY`，research / chat 创建请求会直接返回 `503`，不会退化到确定性 fallback
 - 如果没有配置 `TAVILY_API_KEY` 和 `BRAVE_API_KEY`，流程仍然能运行，但通常拿不到真实网页证据
 - `RUNS_DB_PATH` 默认是 `research_runs.db`，用于保存 run 历史和详情快照
-- 当前 `research_worker` 已包含多 provider 搜索聚合、provider-aware 内容获取和确定性证据评分
+- 当前 `research_worker` 仍包含多 provider 搜索聚合、provider-aware 内容获取和确定性排序 / 过滤逻辑
 
 ## 下一步建议
 
