@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { X } from 'lucide-react'
 import { Button } from './ui/button'
 import type { ResearchSettings, OutputLanguage } from '@/store/useSettingsStore'
@@ -21,12 +21,6 @@ export function ResearchSettingsDialog({
   onConfirm,
 }: ResearchSettingsDialogProps) {
   const [draft, setDraft] = useState<ResearchSettings>(initialValues)
-
-  useEffect(() => {
-    if (open) {
-      setDraft(initialValues)
-    }
-  }, [open, initialValues])
 
   if (!open) return null
 
