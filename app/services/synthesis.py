@@ -6,6 +6,8 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
 
+from pydantic import BaseModel, Field
+
 from app.config import Settings
 from app.domain.models import ReportDraft, ReportSectionDraft, StructuredReport
 from app.services.conversation_memory import build_contextual_brief
@@ -24,6 +26,7 @@ _MAX_CLAIM_LENGTH = 280
 _MAX_SNIPPET_LENGTH = 320
 _MAX_SOURCE_TITLE_LENGTH = 140
 _MAX_MEMORY_BRIEF_CHARS = 600
+_MAX_REPORT_HEADING_LENGTH = 80
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +43,36 @@ class SectionPlan:
     heading: str
     purpose: str
     findings: list[dict[str, Any]]
+
+
+class TaskReportHeadingDraft(BaseModel):
+    task_id: str = Field(min_length=1)
+    report_heading: str = Field(min_length=1)
+
+
+class TaskReportHeadingPlan(BaseModel):
+    tasks: list[TaskReportHeadingDraft] = Field(default_factory=list)
+
+
+def assign_report_headings(
+    question: str,
+    tasks: list[dict],
+    findings: list[dict],
+    settings: Settings,
+    output_language: str | None = None,
+) -> list[dict]:
+    if not tasks:
+        return []
+
+    labels = get_report_labels(output_language)
+    drafted = _maybe_generate_report_headings_with_llm(
+        question=question,
+        tasks=tasks,
+        findings=findings,
+        settings=settings,
+        labels=labels,
+    )
+    return _finalize_task_report_headings(tasks, drafted, labels)
 
 
 def _fallback_report(
@@ -109,7 +142,7 @@ def _maybe_synthesize_single_call(
                 "Write a report-style synthesis. "
                 "Write the report in {language_name}. "
                 "Use the summary field for a concise cited summary under the heading '{summary_heading}'. "
-                "In sections, prioritize task-based chapters using the supplied task titles as report headings, then include '{risks_heading}' when the evidence warrants it, and finish with '{conclusion_heading}'. "
+                "In sections, prioritize task-based chapters using each task's report_heading as the chapter heading, then include '{risks_heading}' when the evidence warrants it, and finish with '{conclusion_heading}'. "
                 "Do not include background, conversation context, or open questions sections. "
                 "Use inline citations on factual claims. "
                 "{format_instructions}",
@@ -521,6 +554,7 @@ def _build_compact_tasks(tasks: list[dict]) -> list[dict[str, str]]:
             {
                 "task_id": task_id,
                 "title": _trim_text(_as_text(task.get("title")), _MAX_TASK_TITLE_LENGTH) or task_id,
+                "report_heading": _trim_text(_task_report_heading(task), _MAX_REPORT_HEADING_LENGTH),
                 "question": _trim_text(_as_text(task.get("question")), _MAX_TASK_QUESTION_LENGTH),
             }
         )
@@ -681,7 +715,7 @@ def _build_task_sections(tasks: list[dict], findings: list[dict], labels: Report
         if not task_id:
             continue
         section = _fallback_section(
-            _normalize_task_heading(task),
+            _task_report_heading(task),
             grouped.get(task_id, []),
         )
         if section is not None:
@@ -707,7 +741,7 @@ def _build_task_section_plans(tasks: list[dict], findings: list[dict]) -> list[S
             continue
         plans.append(
             SectionPlan(
-                heading=_normalize_task_heading(task),
+                heading=_task_report_heading(task),
                 purpose=_task_section_purpose(task),
                 findings=task_findings,
             )
@@ -734,7 +768,7 @@ def _ordered_report_headings(
     seen: set[str] = set()
 
     for task in tasks:
-        heading = _normalize_task_heading(task)
+        heading = _task_report_heading(task)
         if heading in grouped_sections and heading not in seen:
             seen.add(heading)
             ordered.append(heading)
@@ -778,12 +812,177 @@ def _normalize_task_heading(task: dict[str, Any]) -> str:
     return normalized
 
 
+def _task_report_heading(task: dict[str, Any]) -> str:
+    report_heading = _sanitize_report_heading(_as_text(task.get("report_heading")))
+    if report_heading:
+        return report_heading
+    return _normalize_task_heading(task)
+
+
 def _task_section_purpose(task: dict[str, Any]) -> str:
     question = _trim_text(_as_text(task.get("question")), _MAX_TASK_QUESTION_LENGTH)
-    heading = _normalize_task_heading(task)
+    heading = _task_report_heading(task)
     if question:
         return f"Explain the evidence-backed answer for {heading}. Focus on: {question}"
     return f"Explain the evidence-backed answer for {heading}."
+
+
+def _maybe_generate_report_headings_with_llm(
+    question: str,
+    tasks: list[dict],
+    findings: list[dict],
+    settings: Settings,
+    labels: ReportLabels,
+) -> dict[str, str] | None:
+    if not settings.enable_llm_synthesis or not can_use_llm(settings) or not tasks:
+        return None
+
+    try:
+        from langchain_core.output_parsers import PydanticOutputParser
+        from langchain_core.prompts import ChatPromptTemplate
+    except ImportError:
+        return None
+
+    parser = PydanticOutputParser(pydantic_object=TaskReportHeadingPlan)
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                "You rewrite internal research tasks into concise report chapter headings. "
+                "Keep the original scope and terminology. "
+                "Use the user's language. "
+                "Return topical headings, not commands and not questions. "
+                "Do not include markdown, citations, numbering, or trailing punctuation. "
+                "Make headings distinct from each other.",
+            ),
+            (
+                "human",
+                "Current question:\n{question}\n\n"
+                "Report language:\n{language_name}\n\n"
+                "Tasks:\n{tasks}\n\n"
+                "Return one heading per task using the same task_id values.\n"
+                "{format_instructions}",
+            ),
+        ]
+    )
+    model = build_chat_model(settings.synthesis_model, settings, temperature=0)
+    if model is None:
+        return None
+
+    chain = prompt | model | parser
+    try:
+        response: TaskReportHeadingPlan = chain.invoke(
+            {
+                "question": question,
+                "language_name": labels.language_name,
+                "tasks": _build_heading_prompt_tasks(tasks, findings),
+                "format_instructions": parser.get_format_instructions(),
+            }
+        )
+    except Exception:
+        return None
+
+    return {
+        item.task_id: item.report_heading
+        for item in response.tasks
+        if item.task_id.strip() and item.report_heading.strip()
+    }
+
+
+def _build_heading_prompt_tasks(tasks: list[dict], findings: list[dict]) -> list[dict[str, Any]]:
+    evidence_by_task: dict[str, list[str]] = defaultdict(list)
+    seen_claims: dict[str, set[str]] = defaultdict(set)
+    for finding in _sort_findings_for_synthesis(findings):
+        task_id = _as_text(finding.get("task_id"))
+        claim = _trim_text(
+            _as_text(finding.get("claim")) or _as_text(finding.get("snippet")),
+            _MAX_CLAIM_LENGTH,
+        )
+        if not task_id or not claim or len(evidence_by_task[task_id]) >= 2:
+            continue
+        dedupe_key = claim.casefold()
+        if dedupe_key in seen_claims[task_id]:
+            continue
+        seen_claims[task_id].add(dedupe_key)
+        evidence_by_task[task_id].append(claim)
+
+    prompt_tasks: list[dict[str, Any]] = []
+    for task in tasks:
+        task_id = _as_text(task.get("task_id"))
+        if not task_id:
+            continue
+        prompt_tasks.append(
+            {
+                "task_id": task_id,
+                "title": _trim_text(_as_text(task.get("title")), _MAX_TASK_TITLE_LENGTH) or task_id,
+                "question": _trim_text(_as_text(task.get("question")), _MAX_TASK_QUESTION_LENGTH),
+                "evidence": evidence_by_task.get(task_id, []),
+            }
+        )
+    return prompt_tasks
+
+
+def _finalize_task_report_headings(
+    tasks: list[dict],
+    drafted: dict[str, str] | None,
+    labels: ReportLabels,
+) -> list[dict]:
+    drafted = drafted or {}
+    reserved = {
+        labels.summary_heading.casefold(),
+        labels.risks_heading.casefold(),
+        labels.conclusion_heading.casefold(),
+        labels.references_heading.casefold(),
+    }
+    seen: set[str] = set()
+    finalized: list[dict] = []
+    for index, task in enumerate(tasks, start=1):
+        task_id = _as_text(task.get("task_id"))
+        fallback = _normalize_task_heading(task)
+        candidates = [
+            _sanitize_report_heading(_as_text(task.get("report_heading"))),
+            _sanitize_report_heading(drafted.get(task_id, "")),
+            fallback,
+        ]
+        chosen = ""
+        for candidate in candidates:
+            if not candidate:
+                continue
+            key = candidate.casefold()
+            if key in reserved or key in seen:
+                continue
+            chosen = candidate
+            break
+        if not chosen:
+            chosen = _make_unique_heading(fallback, seen, reserved, index)
+
+        updated_task = dict(task)
+        updated_task["report_heading"] = chosen
+        finalized.append(updated_task)
+        seen.add(chosen.casefold())
+    return finalized
+
+
+def _sanitize_report_heading(value: str) -> str:
+    normalized = _normalize_space(value.lstrip("#").strip())
+    normalized = re.sub(r"\s*\[[^\]]+\]\s*$", "", normalized)
+    normalized = normalized.rstrip(" .:;。；：")
+    return _trim_text(normalized, _MAX_REPORT_HEADING_LENGTH)
+
+
+def _make_unique_heading(base: str, seen: set[str], reserved: set[str], index: int) -> str:
+    if not base:
+        base = "Analysis"
+    candidate = base
+    suffix = 2
+    while candidate.casefold() in seen or candidate.casefold() in reserved:
+        candidate = _trim_text(f"{base} ({suffix})", _MAX_REPORT_HEADING_LENGTH)
+        suffix += 1
+        if suffix > index + 3:
+            break
+    if candidate.casefold() in seen or candidate.casefold() in reserved:
+        candidate = _trim_text(f"{base} {index}", _MAX_REPORT_HEADING_LENGTH)
+    return candidate
 
 
 def _select_diverse_findings(findings: list[dict], limit: int) -> list[dict]:

@@ -3,10 +3,11 @@ from __future__ import annotations
 from app.config import get_settings
 from app.runtime_progress import emit_progress
 from app.services.research_progress import build_counts, build_progress_payload
-from app.services.synthesis import synthesize_report
+from app.services.synthesis import assign_report_headings, synthesize_report
 
 
 def synthesize_report_node(state: dict, config: dict | None = None) -> dict:
+    settings = get_settings()
     emit_progress(
         config,
         {
@@ -25,16 +26,24 @@ def synthesize_report_node(state: dict, config: dict | None = None) -> dict:
             ).model_dump(),
         },
     )
-    report = synthesize_report(
+    tasks = assign_report_headings(
         question=state["request"]["question"],
         tasks=state.get("tasks", []),
         findings=state.get("findings", []),
+        settings=settings,
+        output_language=state.get("request", {}).get("output_language"),
+    )
+    report = synthesize_report(
+        question=state["request"]["question"],
+        tasks=tasks,
+        findings=state.get("findings", []),
         sources=state.get("sources", {}),
-        settings=get_settings(),
+        settings=settings,
         memory=state.get("memory"),
         output_language=state.get("request", {}).get("output_language"),
     )
     return {
+        "tasks": tasks,
         "draft_report": report.markdown,
         "draft_structured_report": report.model_dump(),
     }

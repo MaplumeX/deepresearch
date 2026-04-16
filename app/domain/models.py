@@ -20,6 +20,7 @@ class ChatRequest(BaseModel):
 class ResearchTask(BaseModel):
     task_id: str
     title: str
+    report_heading: str | None = None
     question: str
     status: Literal["pending", "running", "done", "failed"] = "pending"
 

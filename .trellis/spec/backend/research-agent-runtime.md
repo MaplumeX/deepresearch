@@ -235,6 +235,14 @@ def synthesize_report(
     output_language: str | None = None,
 ) -> StructuredReport
 
+def assign_report_headings(
+    question: str,
+    tasks: list[dict],
+    findings: list[dict],
+    settings: Settings,
+    output_language: str | None = None,
+) -> list[dict]
+
 def build_structured_report(
     draft: ReportDraft,
     sources: dict[str, dict],
@@ -288,6 +296,8 @@ SYNTHESIS_MAX_SOURCES_PER_CALL
 Compact payload rules:
 
 - `_build_compact_payload()` is the only allowed path for LLM synthesis input in `app/services/synthesis.py`.
+- `CompactPayload.tasks[*]` must contain only:
+  `task_id`, `title`, `report_heading`, `question`
 - `CompactPayload.sources[*]` must contain only:
   `source_id`, `title`, `url`, `snippet`, `providers`, `source_role`
 - `CompactPayload.findings[*]` must contain only:
@@ -310,13 +320,15 @@ Default report-structure rules:
 
 - Final report defaults must be:
   localized summary section
-  zero or more task-based chapters derived from `task.title`
+  zero or more task-based chapters derived from `task.report_heading` when present, otherwise normalized from `task.title`
   optional localized risk section when `evidence_type in {"risk", "limitation"}`
   localized conclusion section
   localized references section
 - `synthesize_report()` must not inject `Conversation Context` or `Open Questions` into the final default report output.
 - Task chapter ordering must follow task order from `tasks`, then risk section, then conclusion.
-- Task chapter headings may be normalized into report-style headings by stripping imperative prefixes such as `Assess`, `Evaluate`, `Recover`, `评估`, `分析`.
+- `assign_report_headings()` is the only allowed path for generating `task.report_heading` values before report synthesis.
+- `task.title` remains the internal execution title for query rewriting, evidence extraction, and worker diagnostics; synthesis-only heading generation must not overwrite it.
+- Task chapter headings may be normalized into report-style headings by stripping imperative prefixes such as `Assess`, `Evaluate`, `Recover`, `评估`, `分析` when no valid `report_heading` is available.
 
 Routing rules:
 
@@ -339,6 +351,7 @@ Routing rules:
 | compact source payload includes raw `content` field | `tests/unit/test_synthesis.py::test_compact_payload_excludes_raw_source_content` | fail the unit test; this shape is forbidden |
 | `output_language` is `zh-CN` or omitted | `get_report_labels()` | use Chinese fixed report labels for title, summary, risk, conclusion, and references |
 | `output_language` is `en` | `get_report_labels()` | use English fixed report labels for title, summary, risk, conclusion, and references |
+| generated `task.report_heading` is empty, duplicates another task heading, or collides with a fixed report section heading | `assign_report_headings()` | fall back to the deterministic normalized heading for that task and disambiguate if needed |
 
 Structured report validation and error matrix:
 
@@ -379,6 +392,8 @@ Required tests and assertion points for this contract:
   Assert `_build_compact_payload()` excludes raw source `content` from prompt payloads.
 - `tests/unit/test_synthesis.py`
   Assert fallback synthesis uses localized summary + task chapters + localized conclusion instead of `Conversation Context` or `Key Findings`.
+- `tests/unit/test_synthesis.py`
+  Assert `assign_report_headings()` preserves `task.title` and populates `task.report_heading`.
 - `tests/unit/test_config.py`
   Assert synthesis budget env defaults load from `Settings`.
 - `tests/unit/test_audit.py`
@@ -649,7 +664,7 @@ This store no longer auto-migrates pre-conversation legacy rows. If the on-disk 
 {
   "request": "normalized request payload",
   "memory": "conversation short-term memory payload with recent 5 runs plus persisted older summary",
-  "tasks": "list of research tasks",
+  "tasks": "list of research tasks with optional report_heading",
   "raw_findings": "append-only list of worker evidence",
   "raw_source_batches": "append-only list of worker source maps",
   "task_outcomes": "append-only list of per-task worker diagnostics for the current and earlier iterations",
@@ -666,6 +681,21 @@ This store no longer auto-migrates pre-conversation legacy rows. If the on-disk 
   "review_required": "whether interrupt-based review is required"
 }
 ```
+
+Task contract inside `GraphState["tasks"]`:
+
+```json
+{
+  "task_id": "string",
+  "title": "internal execution title used by retrieval/extraction flows",
+  "report_heading": "optional synthesis-only chapter heading",
+  "question": "string",
+  "status": "pending | running | done | failed"
+}
+```
+
+- `title` must stay stable across worker execution and gap recovery.
+- `report_heading` may be populated during synthesis, but it must not replace `title` in retrieval, evidence extraction, or worker-quality services.
 
 #### Worker Task Outcome Contract
 

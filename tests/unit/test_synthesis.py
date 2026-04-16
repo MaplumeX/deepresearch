@@ -5,7 +5,12 @@ from unittest.mock import patch
 
 from app.config import Settings
 from app.domain.models import ReportDraft, ReportSectionDraft
-from app.services.synthesis import _build_compact_payload, _normalize_task_heading, synthesize_report
+from app.services.synthesis import (
+    _build_compact_payload,
+    _normalize_task_heading,
+    assign_report_headings,
+    synthesize_report,
+)
 
 
 class SynthesisServiceTest(unittest.TestCase):
@@ -244,6 +249,92 @@ class SynthesisServiceTest(unittest.TestCase):
             _normalize_task_heading({"title": "评估 OpenAI 与 Anthropic 的研究能力差异"}),
             "OpenAI 与 Anthropic 的研究能力差异",
         )
+
+    def test_assign_report_headings_falls_back_without_overwriting_task_title(self) -> None:
+        tasks = assign_report_headings(
+            question="请继续分析这个问题",
+            tasks=[
+                {
+                    "task_id": "task-1",
+                    "title": "评估研究覆盖质量",
+                    "question": "请评估研究覆盖质量。",
+                }
+            ],
+            findings=[],
+            settings=self.settings,
+            output_language="zh-CN",
+        )
+
+        self.assertEqual(tasks[0]["title"], "评估研究覆盖质量")
+        self.assertEqual(tasks[0]["report_heading"], "研究覆盖质量")
+
+    def test_assign_report_headings_falls_back_when_llm_headings_conflict(self) -> None:
+        with patch(
+            "app.services.synthesis._maybe_generate_report_headings_with_llm",
+            return_value={
+                "task-1": "Coverage quality",
+                "task-2": "Coverage quality",
+            },
+        ):
+            tasks = assign_report_headings(
+                question="How should we evaluate deep research coverage?",
+                tasks=[
+                    {
+                        "task_id": "task-1",
+                        "title": "Assess coverage quality",
+                        "question": "Evaluate coverage quality.",
+                    },
+                    {
+                        "task_id": "task-2",
+                        "title": "Assess evidence gaps",
+                        "question": "Evaluate evidence gaps.",
+                    },
+                ],
+                findings=[],
+                settings=self.settings,
+                output_language="en",
+            )
+
+        self.assertEqual(tasks[0]["report_heading"], "Coverage quality")
+        self.assertEqual(tasks[1]["report_heading"], "Evidence gaps")
+
+    def test_fallback_synthesis_prefers_report_heading_for_task_sections(self) -> None:
+        report = synthesize_report(
+            question="Can you continue this analysis?",
+            tasks=[
+                {
+                    "task_id": "task-1",
+                    "title": "Assess topic coverage",
+                    "report_heading": "Coverage quality",
+                }
+            ],
+            findings=[
+                {
+                    "task_id": "task-1",
+                    "claim": "Fact",
+                    "snippet": "Fact",
+                    "source_id": "Ssource001",
+                    "confidence": 0.8,
+                    "relevance_score": 0.7,
+                }
+            ],
+            sources={
+                "Ssource001": {
+                    "title": "Source",
+                    "url": "https://example.com",
+                    "content": "Fact",
+                    "providers": ["tavily"],
+                    "acquisition_method": "http_fetch",
+                    "fetched_at": "2026-04-14T08:00:00+00:00",
+                }
+            },
+            settings=self.settings,
+            memory=None,
+            output_language="en",
+        )
+
+        self.assertIn("## Coverage quality", report.markdown)
+        self.assertNotIn("## Topic coverage", report.markdown)
 
     def test_fallback_synthesis_localizes_fixed_headings_for_chinese(self) -> None:
         report = synthesize_report(
